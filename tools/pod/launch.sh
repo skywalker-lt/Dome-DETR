@@ -23,7 +23,6 @@ cd "$REPO"
 if [ ! -f "$RUN/last.pth" ] && [ -f "$BK/last.pth" ]; then
   echo "[launch] restoring $BK -> $RUN"; cp -n "$BK"/*.pth "$BK"/fit_state.json "$BK"/log.txt "$RUN/" 2>/dev/null
 fi
-RESUME=(); [ -f "$RUN/last.pth" ] && RESUME=(-r "$RUN/last.pth") && echo "[launch] resuming from $RUN/last.pth"
 
 backup() {
   for f in last.pth best_stg1.pth best_stg2.pth fit_state.json log.txt train.out; do
@@ -45,8 +44,20 @@ export PYTHONUNBUFFERED=1
 # which spins and gets throttled. A few threads per run is enough for the small CPU-side ops.
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4} MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
-$PY train.py -c "$CFG" --seed "$SEED" "${RESUME[@]}" >> "$RUN/train.out" 2>&1
-RC=$?
+# PyTorch passes worker tensors through file descriptors; the default soft limit of 1024 ran out during the
+# first test evaluation ("received 0 items of ancdata").
+ulimit -n "$(ulimit -Hn)"
+# Resume automatically after a crash (up to MAX_RETRIES times), always from the newest local last.pth.
+RC=1; TRY=0
+while :; do
+  RESUME=(); [ -f "$RUN/last.pth" ] && RESUME=(-r "$RUN/last.pth")
+  echo "[launch] $(date -u +%FT%TZ) attempt $TRY ${RESUME[*]}" >> "$RUN/train.out"
+  $PY train.py -c "$CFG" --seed "$SEED" "${RESUME[@]}" >> "$RUN/train.out" 2>&1
+  RC=$?
+  [ $RC -eq 0 ] && break
+  TRY=$((TRY + 1)); [ $TRY -gt ${MAX_RETRIES:-3} ] && break
+  echo "[launch] train.py exited $RC; resuming in 60 s" >> "$RUN/train.out"; sleep 60
+done
 kill $WATCH 2>/dev/null
 backup final
 echo "[launch] train.py exited $RC" | tee -a "$RUN/train.out"
