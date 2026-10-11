@@ -99,10 +99,13 @@ def normalized_wasserstein_distance(boxes1, boxes2, constant=12.7, canvas=800.0,
     W2^2 = |c1 - c2|^2 + |(w1 - w2, h1 - h2) / 2|^2 and NWD = exp(-sqrt(W2^2) / C). ``constant`` C is in pixels
     (12.7 = mean AI-TOD-v2 object size). ``pairwise`` returns an [N, M] matrix, else elementwise for equal-length inputs.
     """
-    b1 = boxes1 * canvas
-    b2 = boxes2 * canvas
+    # W2 is the Euclidean distance between (cx, cy, w/2, h/2) vectors, so the pairwise case is one cdist
+    # (memory N x M; a broadcast difference would need N x M x 4 and ran out of memory on dense batches).
+    half = boxes1.new_tensor([1.0, 1.0, 0.5, 0.5]) * canvas
+    p1 = boxes1.float() * half
+    p2 = boxes2.float() * half
     if pairwise:
-        b1, b2 = b1[:, None, :], b2[None, :, :]
-    dc = (b1[..., :2] - b2[..., :2]).pow(2).sum(-1)
-    dwh = ((b1[..., 2:] - b2[..., 2:]) / 2).pow(2).sum(-1)
-    return torch.exp(-torch.sqrt((dc + dwh).clamp(min=1e-12)) / constant)
+        w2 = torch.cdist(p1, p2, p=2, compute_mode="donot_use_mm_for_euclid_dist")
+    else:
+        w2 = (p1 - p2).pow(2).sum(-1).clamp(min=1e-12).sqrt()
+    return torch.exp(-w2 / constant)
