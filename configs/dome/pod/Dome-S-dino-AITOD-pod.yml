@@ -1,0 +1,45 @@
+# DINOv3 semantic path: the released Dome-S recipe with HGNetv2-B0 unchanged plus DEIMv2's DINOv3-distilled ViT-Tiny
+# (patch 16, fine-tuned at the backbone learning rate) added into all four backbone levels through zero-initialized
+# 1x1 fusions (src/nn/backbone/hgnetv2_vit.py). Same-recipe control: Dome-S-AITOD-pod.yml (HGNetv2 only).
+# Weights: weight/dinov3/vitt_distill.pt (DEIMv2 README "ViT-Tiny", DINOv3 License).
+__include__: [
+  '../Dome-S-AITOD.yml',
+  './aitod_pod_data.yml',
+]
+output_dir: /root/runs/dome_s_dino
+
+DOME:
+  backbone: HGNetv2ViT
+
+HGNetv2ViT:
+  name: 'B0'
+  return_idx: [0, 1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True
+  local_model_dir: weight/hgnetv2/
+  out_channels: [64, 256, 512, 1024]
+  vit_weights: weight/dinov3/vitt_distill.pt
+
+# Same groups as Dome-S; the new fusion layers (sem_fuse) are excluded from the backbone groups so they train at
+# the head learning rate, and their BN parameters get no weight decay.
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*backbone)(?!.*(?:norm|bn|sem_fuse)).*$'
+      lr: 0.00002
+    -
+      params: '^(?=.*backbone)(?=.*(?:norm|bn))(?!.*sem_fuse).*$'
+      lr: 0.00002
+      weight_decay: 0.
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
+      weight_decay: 0.
+    -
+      params: '^(?=.*sem_fuse\.\d+\.1\.).*$'
+      weight_decay: 0.
+  lr: 0.0002
+  betas: [0.9, 0.999]
+  weight_decay: 0.000065

@@ -1,0 +1,16 @@
+# NWD run: the released Dome-S recipe plus a Normalized Wasserstein Distance term (Wang et al. 2021) in the
+# Hungarian matching cost and in the box loss, at the GIoU weights (cost 2, loss 2). NWD is measured on the
+# 800-px canvas with C = 12.7 px (AI-TOD-v2 mean object size). Same-recipe control: Dome-S-AITOD-pod.yml.
+__include__: [
+  '../Dome-S-AITOD.yml',
+  './aitod_pod_data.yml',
+]
+output_dir: /root/runs/dome_s_nwd
+
+DomeCriterion:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2, loss_fgl: 0.15, loss_ddf: 1.5, loss_nwd: 2}
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2, cost_nwd: 2, nwd_constant: 12.7}
+    alpha: 0.25
+    gamma: 2.0

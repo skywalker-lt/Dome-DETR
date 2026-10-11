@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 
 from ...core import register
-from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou
+from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou, normalized_wasserstein_distance
 
 
 @register()
@@ -40,6 +40,9 @@ class HungarianMatcher(nn.Module):
         self.cost_class = weight_dict["cost_class"]
         self.cost_bbox = weight_dict["cost_bbox"]
         self.cost_giou = weight_dict["cost_giou"]
+        # optional NWD cost (absent in the released configs => released behaviour)
+        self.cost_nwd = weight_dict.get("cost_nwd", 0)
+        self.nwd_constant = weight_dict.get("nwd_constant", 12.7)
 
         self.use_focal_loss = use_focal_loss
         self.alpha = alpha
@@ -109,6 +112,8 @@ class HungarianMatcher(nn.Module):
 
         # Final cost matrix 3 * self.cost_bbox + 2 * self.cost_class + self.cost_giou
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
+        if self.cost_nwd:
+            C = C + self.cost_nwd * (1 - normalized_wasserstein_distance(out_bbox, tgt_bbox, self.nwd_constant))
         C = C.view(bs, num_queries, -1).cpu()
 
         sizes = [len(v["boxes"]) for v in targets]

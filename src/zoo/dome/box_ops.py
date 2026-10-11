@@ -91,3 +91,18 @@ def masks_to_boxes(masks):
     y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
     return torch.stack([x_min, y_min, x_max, y_max], 1)
+
+
+def normalized_wasserstein_distance(boxes1, boxes2, constant=12.7, canvas=800.0, pairwise=True):
+    """NWD (Wang et al., 2021) between cxcywh boxes normalized to [0, 1], measured in pixels on a ``canvas``-px image.
+
+    W2^2 = |c1 - c2|^2 + |(w1 - w2, h1 - h2) / 2|^2 and NWD = exp(-sqrt(W2^2) / C). ``constant`` C is in pixels
+    (12.7 = mean AI-TOD-v2 object size). ``pairwise`` returns an [N, M] matrix, else elementwise for equal-length inputs.
+    """
+    b1 = boxes1 * canvas
+    b2 = boxes2 * canvas
+    if pairwise:
+        b1, b2 = b1[:, None, :], b2[None, :, :]
+    dc = (b1[..., :2] - b2[..., :2]).pow(2).sum(-1)
+    dwh = ((b1[..., 2:] - b2[..., 2:]) / 2).pow(2).sum(-1)
+    return torch.exp(-torch.sqrt((dc + dwh).clamp(min=1e-12)) / constant)

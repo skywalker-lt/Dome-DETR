@@ -16,7 +16,7 @@ import torchvision
 
 from ...core import register
 from ...misc.dist_utils import get_world_size, is_dist_available_and_initialized
-from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
+from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou, normalized_wasserstein_distance
 from .dome_utils import bbox2distance
 
 
@@ -194,6 +194,14 @@ class DomeCriterion(nn.Module):
         )
         loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
         losses["loss_giou"] = loss_giou.sum() / num_boxes
+
+        # optional NWD box loss; only weighted in when the config's weight_dict has "loss_nwd"
+        if "loss_nwd" in self.weight_dict:
+            loss_nwd = 1 - normalized_wasserstein_distance(
+                src_boxes, target_boxes, getattr(self, "nwd_constant", 12.7), pairwise=False
+            )
+            loss_nwd = loss_nwd if boxes_weight is None else loss_nwd * boxes_weight
+            losses["loss_nwd"] = loss_nwd.sum() / num_boxes
 
         return losses
 

@@ -11,6 +11,7 @@ from .common import (
 from .csp_darknet import CSPPAN, CSPDarkNet
 from .csp_resnet import CSPResNet
 from .hgnetv2 import HGNetv2
+from .hgnetv2_vit import HGNetv2ViT
 from .presnet import PResNet
 from .test_resnet import MResNet
 from .timm_model import TimmModel
