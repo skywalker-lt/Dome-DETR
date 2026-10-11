@@ -136,12 +136,31 @@ def train_one_epoch(
             optimizer.zero_grad()
 
         else:
-            outputs = model(samples, targets=targets)
-            loss_dict = criterion(outputs, targets, **metas)
+            # fp32 path (the released Dome configs set use_amp: False): same-batch OOM retry as above
+            targets_in = targets
+            for _attempt in range(OOM_RETRIES + 1):
+                oom = False
+                targets = [{k: v.clone() for k, v in t.items()} for t in targets_in]
+                try:
+                    outputs = model(samples, targets=targets)
+                    loss_dict = criterion(outputs, targets, **metas)
 
-            loss: torch.Tensor = sum(loss_dict.values())
-            optimizer.zero_grad()
-            loss.backward()
+                    loss: torch.Tensor = sum(loss_dict.values())
+                    optimizer.zero_grad()
+                    loss.backward()
+                except torch.OutOfMemoryError:
+                    oom = True
+                if not oom:
+                    break
+                outputs = loss_dict = loss = None
+                optimizer.zero_grad(set_to_none=True)
+                gc.collect()
+                torch.cuda.empty_cache()
+                if _attempt == OOM_RETRIES:
+                    raise RuntimeError(f"CUDA OOM on step {i} after {OOM_RETRIES} retries")
+                print(f"[oom-retry] epoch {epoch} step {i} attempt {_attempt + 1}/{OOM_RETRIES}: "
+                      f"max objects/img {max_gt_num}; waiting {min(10 * (_attempt + 1), 120)} s", flush=True)
+                time.sleep(min(10 * (_attempt + 1), 120))
 
             if max_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
