@@ -41,6 +41,9 @@ watch_backups() {
 }
 watch_backups & WATCH=$!
 export PYTHONUNBUFFERED=1
+# The pod container is CPU-quota limited (27 cores); torch defaults to one OpenMP thread per host core (256),
+# which spins and gets throttled. A few threads per run is enough for the small CPU-side ops.
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4} MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 $PY train.py -c "$CFG" --seed "$SEED" "${RESUME[@]}" >> "$RUN/train.out" 2>&1
 RC=$?
