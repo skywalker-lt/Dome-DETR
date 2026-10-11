@@ -1,0 +1,7 @@
+# Dense control: the released Dome-S AI-TOD recipe unchanged (160 epochs, total batch 8, same schedule),
+# retrained on one GPU with the local disk cache. Same-recipe baseline for the thin-dense twin.
+__include__: [
+  '../Dome-S-AITOD.yml',
+  './aitod_pod_data.yml',
+]
+output_dir: /root/runs/dome_s_dense

@@ -15,6 +15,16 @@ from .det_engine import evaluate, train_one_epoch
 
 
 class DetSolver(BaseSolver):
+    def _write_fit_state(self, path, best_stat, best_stat_print, top1):
+        if path is None:
+            return
+        fs = {"last_epoch": self.last_epoch, "best_stat": best_stat, "best_stat_print": best_stat_print, "top1": top1,
+              "not_improved_count": self.not_improved_count, "stage2_reload": self.stage2_reload,
+              "ema_decay": self.ema.decay if self.ema is not None else None}
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(fs))
+        tmp.replace(path)
+
     def fit(
         self,
     ):
@@ -59,6 +69,16 @@ class DetSolver(BaseSolver):
                 print(f"best_stat: {best_stat}")
 
         best_stat_print = best_stat.copy()
+        fit_state_path = self.output_dir / "fit_state.json" if self.output_dir else None
+        if self.last_epoch > 0 and fit_state_path is not None and fit_state_path.exists():
+            fs = json.loads(fit_state_path.read_text())
+            if fs.get("last_epoch") == self.last_epoch:
+                best_stat, best_stat_print, top1 = fs["best_stat"], fs["best_stat_print"], fs["top1"]
+                self.not_improved_count, self.stage2_reload = fs["not_improved_count"], fs["stage2_reload"]
+                if self.ema is not None:
+                    self.ema.decay = fs["ema_decay"]
+                print(f"Restored fit state from {fit_state_path}: {fs}")
+        eval_interval = int(args.yaml_cfg.get("eval_interval", 1) or 1)
         start_time = time.time()
         start_epoch = self.last_epoch + 1
         for epoch in range(start_epoch, args.epoches):
@@ -100,7 +120,7 @@ class DetSolver(BaseSolver):
 
             self.last_epoch += 1
 
-            if self.output_dir and epoch < self.train_dataloader.collate_fn.stop_epoch:
+            if self.output_dir:
                 checkpoint_paths = [self.output_dir / "last.pth"]
                 # extra checkpoint before LR drop and every 100 epochs
                 if (epoch + 1) % args.checkpoint_freq == 0:
@@ -109,6 +129,13 @@ class DetSolver(BaseSolver):
                     dist_utils.save_on_master(self.state_dict(), checkpoint_path)
 
             module = self.ema.module if self.ema else self.model
+
+            if (epoch + 1) % eval_interval != 0 and epoch != args.epoches - 1 and epoch + 1 != self.train_dataloader.collate_fn.stop_epoch:
+                if self.output_dir and dist_utils.is_main_process():
+                    with (self.output_dir / "log.txt").open("a") as f:
+                        f.write(json.dumps({**{f"train_{k}": v for k, v in train_stats.items()}, "epoch": epoch}) + "\n")
+                    self._write_fit_state(fit_state_path, best_stat, best_stat_print, top1)
+                continue
 
             print("Evaluate state starting...")
 
@@ -194,6 +221,7 @@ class DetSolver(BaseSolver):
             if self.output_dir and dist_utils.is_main_process():
                 with (self.output_dir / "log.txt").open("a") as f:
                     f.write(json.dumps(log_stats) + "\n")
+                self._write_fit_state(fit_state_path, best_stat, best_stat_print, top1)
 
                 # for evaluation logs
                 if coco_evaluator is not None:

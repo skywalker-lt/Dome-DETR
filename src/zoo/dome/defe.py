@@ -84,10 +84,10 @@ class OptimizedDeFE(nn.Module):
         return self.layers(x)
 
 class LiteDeFE(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels=256):
         super().__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=1),
+            nn.Conv2d(in_channels, 256, kernel_size=1),
             nn.AvgPool2d(kernel_size=2)
         )
         

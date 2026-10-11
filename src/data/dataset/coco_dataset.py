@@ -1,3 +1,4 @@
+import os
 """
 Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
@@ -31,15 +32,29 @@ class CocoDetection(torchvision.datasets.CocoDetection, DetDataset):
     __share__ = ["remap_mscoco_category"]
 
     def __init__(
-        self, img_folder, ann_file, transforms, return_masks=False, remap_mscoco_category=False
+        self, img_folder, ann_file, transforms, return_masks=False, remap_mscoco_category=False, cache_dir=None
     ):
         super(CocoDetection, self).__init__(img_folder, ann_file)
+        # cache_dir: local-disk decoded-image cache built by tools/pod/build_cache.py (None = read img_folder)
+        self.cache_dir = None
+        if cache_dir:
+            from .disk_cache import assert_local_dir, cache_path
+            self.cache_dir = assert_local_dir(cache_dir)
+            missing = [i for i in self.ids if not os.path.exists(cache_path(self.cache_dir, self.coco.loadImgs(i)[0]["file_name"]))]
+            if missing:
+                raise FileNotFoundError(f"{len(missing)} of {len(self.ids)} images not in cache {self.cache_dir}; run tools/pod/build_cache.py")
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
         self.img_folder = img_folder
         self.ann_file = ann_file
         self.return_masks = return_masks
         self.remap_mscoco_category = remap_mscoco_category
+
+    def _load_image(self, id):
+        if self.cache_dir:
+            from .disk_cache import load_cached
+            return load_cached(self.cache_dir, self.coco.loadImgs(id)[0]["file_name"])
+        return super()._load_image(id)
 
     def __getitem__(self, idx):
         img, target = self.load_item(idx)

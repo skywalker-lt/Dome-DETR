@@ -1,0 +1,13 @@
+# Thin-dense twin of Dome-S: neck widths P2 64, P3 128, P4 256, P5 256 (released: 256 everywhere).
+# Everything else, including the recipe, is identical to Dome-S-AITOD-pod.yml. Dense: no routing.
+__include__: [
+  '../Dome-S-AITOD.yml',
+  './aitod_pod_data.yml',
+]
+output_dir: /root/runs/dome_s_thin
+
+HybridEncoder:
+  level_dims: [64, 128, 256, 256]
+
+DomeTransformer:
+  feat_channels: [64, 128, 256, 256]

@@ -281,7 +281,8 @@ class HybridEncoder(nn.Module):
         use_defe=False,
         defe_type="default",
         use_mwas=False,
-        mwas_window_size=20
+        mwas_window_size=20,
+        level_dims=None,
     ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -293,7 +294,15 @@ class HybridEncoder(nn.Module):
         self.pos_embeds = []
         self.in_channels = in_channels
         self.feat_strides = feat_strides
-        self.out_channels = [hidden_dim for _ in range(len(in_channels))]
+        # level_dims: per-level neck width [P2, P3, P4, P5]; None keeps the released design (hidden_dim everywhere).
+        # Thin-dense twin: e.g. [64, 128, 256, 256]. Lateral convs map w_hi -> w_lo, SCDown maps w_lo -> w_hi.
+        if level_dims is None:
+            level_dims = [hidden_dim for _ in range(len(in_channels))]
+        assert len(level_dims) == len(in_channels)
+        assert all(level_dims[i] == hidden_dim for i in use_encoder_idx), "AIFI levels must keep hidden_dim"
+        self.level_dims = list(level_dims)
+        d = self.level_dims
+        self.out_channels = list(level_dims)
         self.out_strides = feat_strides
         self.use_hybrid = use_hybrid
         self.use_deformable = use_deformable
@@ -305,12 +314,12 @@ class HybridEncoder(nn.Module):
 
         # channel projection
         self.input_proj = nn.ModuleList()
-        for in_channel in in_channels:
+        for in_channel, dim in zip(in_channels, d):
             proj = nn.Sequential(
                 OrderedDict(
                     [
-                        ("conv", nn.Conv2d(in_channel, hidden_dim, kernel_size=1, bias=False)),
-                        ("norm", nn.BatchNorm2d(hidden_dim)),
+                        ("conv", nn.Conv2d(in_channel, dim, kernel_size=1, bias=False)),
+                        ("norm", nn.BatchNorm2d(dim)),
                     ]
                 )
             )
@@ -351,14 +360,15 @@ class HybridEncoder(nn.Module):
             # top-down fpn
             self.lateral_convs = nn.ModuleList()
             self.fpn_blocks = nn.ModuleList()
-            for _ in range(len(in_channels) - 1, 0, -1):
-                self.lateral_convs.append(ConvNormLayer_fuse(hidden_dim, hidden_dim, 1, 1))
+            for idx in range(len(in_channels) - 1, 0, -1):
+                lo = idx - 1
+                self.lateral_convs.append(ConvNormLayer_fuse(d[idx], d[lo], 1, 1))
                 self.fpn_blocks.append(
                     RepNCSPELAN4(
-                        hidden_dim * 2,
-                        hidden_dim,
-                        hidden_dim * 2,
-                        round(expansion * hidden_dim // 2),
+                        d[lo] * 2,
+                        d[lo],
+                        d[lo] * 2,
+                        round(expansion * d[lo] // 2),
                         round(3 * depth_mult),
                     )
                     # CSPLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion, bottletype=VGGBlock)
@@ -366,18 +376,19 @@ class HybridEncoder(nn.Module):
             # # bottom-up pan
             self.downsample_convs = nn.ModuleList()
             self.pan_blocks = nn.ModuleList()
-            for _ in range(len(in_channels) - 1):
+            for idx in range(len(in_channels) - 1):
                 self.downsample_convs.append(
                     nn.Sequential(
-                        SCDown(hidden_dim, hidden_dim, 3, 2),
+                        SCDown(d[idx], d[idx + 1], 3, 2),
                     )
                 )
+                # PAN input = downsampled lower level (d[idx+1]) + lateral output of this level (d[idx])
                 self.pan_blocks.append(
                     RepNCSPELAN4(
-                        hidden_dim * 2,
-                        hidden_dim,
-                        hidden_dim * 2,
-                        round(expansion * hidden_dim // 2),
+                        d[idx + 1] + d[idx],
+                        d[idx + 1],
+                        d[idx + 1] * 2,
+                        round(expansion * d[idx + 1] // 2),
                         round(3 * depth_mult),
                     )
                     # CSPLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion, bottletype=VGGBlock)
@@ -386,10 +397,10 @@ class HybridEncoder(nn.Module):
         # DeFE Module
         if self.use_defe:
             if self.use_mwas:
-                self.mwas_processor = WindowProcessor(embed_dim=self.hidden_dim, dim_feedforward=dim_feedforward, num_layers=1)
+                self.mwas_processor = WindowProcessor(embed_dim=d[1], dim_feedforward=dim_feedforward, num_layers=1)
                 pass
             if self.defe_type == "light":
-                self.DeFE = LiteDeFE()
+                self.DeFE = LiteDeFE(in_channels=d[0])
             else:
                 raise ValueError(f"Invalid defe_type: {self.defe_type}")
 
@@ -519,7 +530,7 @@ class HybridEncoder(nn.Module):
             if self.use_mwas:
                 W, H = proj_feats[1].shape[2:]
                 defe_feature_filtered = self.adaptive_defe_filter(F.interpolate(defe_feature_pooled, size=(H, W), mode="bilinear", align_corners=True)).float()
-                glob_pos_embed = self.build_2d_sincos_position_embedding(W, H, embed_dim=self.hidden_dim).permute(0, 2, 1).view(-1, H, W).to(proj_feats[1].device)
+                glob_pos_embed = self.build_2d_sincos_position_embedding(W, H, embed_dim=self.level_dims[1]).permute(0, 2, 1).view(-1, H, W).to(proj_feats[1].device)
                 enhanced_memory, defe_window_mask = self.mwas_processor(proj_feats[1], defe_feature_filtered, self.mwas_window_size, glob_pos_embed)
                 proj_feats[1] = enhanced_memory
                 out["defe"]["defe_window_mask"] = defe_window_mask

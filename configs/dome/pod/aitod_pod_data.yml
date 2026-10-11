@@ -1,0 +1,16 @@
+# AI-TOD-v2 on a training pod. Annotations are copied to local disk, images are read ONLY from the local
+# decoded-image cache (cache_dir), built once by tools/pod/build_cache.py. Never point cache_dir at /data or
+# /training_data (network volumes); the dataset refuses it.
+train_dataloader:
+  dataset:
+    img_folder: /root/aitod/images/trainval
+    ann_file: /root/aitod/annotations/aitodv2_trainval.json
+    cache_dir: /root/aitod/cache/trainval
+  num_workers: 8
+
+val_dataloader:
+  dataset:
+    img_folder: /root/aitod/images/test
+    ann_file: /root/aitod/annotations/aitodv2_test.json
+    cache_dir: /root/aitod/cache/test
+  num_workers: 8
