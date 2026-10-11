@@ -7,6 +7,7 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 """
 
 import math
+import gc
 import sys
 from typing import Iterable
 
@@ -26,6 +27,10 @@ from ..misc import MetricLogger, SmoothedValue, dist_utils
 from ..optim import ModelEMA, Warmup
 
 SAVE_INTERMEDIATE_VISUALIZE_RESULT = os.environ.get('SAVE_INTERMEDIATE_VISUALIZE_RESULT', 'False') == 'True'
+
+OOM_RETRIES = int(os.environ.get("DOME_OOM_RETRIES", "30"))
+RELEASE_RESERVED_BYTES = int(float(os.environ.get("DOME_RELEASE_RESERVED_GB", "40")) * 2**30)
+
 
 def train_one_epoch(
     model: torch.nn.Module,
@@ -78,27 +83,50 @@ def train_one_epoch(
                 visualize_detection(image, target_cpu, f"sample_gt", return_image=False, type="xywh")
 
         if scaler is not None:
-            with torch.autocast(device_type=str(device), cache_enabled=True):
+          # Two runs share one GPU on the training pods; rare dense batches (thousands of objects -> thousands of
+          # denoising queries) can peak at the same moment and run out of memory. On OOM: drop this attempt's
+          # tensors, free the cache, wait, and redo the same batch (identical data; only the random denoising
+          # noise is redrawn). Optimizer, scaler and EMA are only touched after a successful backward.
+          targets_in = targets
+          for _attempt in range(OOM_RETRIES + 1):
+            oom = False
+            targets = [{k: v.clone() for k, v in t.items()} for t in targets_in]
+            try:
+              with torch.autocast(device_type=str(device), cache_enabled=True):
                 outputs = model(samples, targets=targets)
 
-            if torch.isnan(outputs["pred_boxes"]).any() or torch.isinf(outputs["pred_boxes"]).any():
-                print(outputs["pred_boxes"])
-                state = model.state_dict()
-                new_state = {}
-                for key, value in model.state_dict().items():
-                    # Replace 'module' with 'model' in each key
-                    new_key = key.replace("module.", "")
-                    # Add the updated key-value pair to the state dictionary
-                    state[new_key] = value
-                new_state["model"] = state
-                dist_utils.save_on_master(new_state, "./NaN.pth")
+              if torch.isnan(outputs["pred_boxes"]).any() or torch.isinf(outputs["pred_boxes"]).any():
+                  print(outputs["pred_boxes"])
+                  state = model.state_dict()
+                  new_state = {}
+                  for key, value in model.state_dict().items():
+                      # Replace 'module' with 'model' in each key
+                      new_key = key.replace("module.", "")
+                      # Add the updated key-value pair to the state dictionary
+                      state[new_key] = value
+                  new_state["model"] = state
+                  dist_utils.save_on_master(new_state, "./NaN.pth")
 
-            with torch.autocast(device_type=str(device), enabled=False):
+              with torch.autocast(device_type=str(device), enabled=False):
                 loss_dict = criterion(outputs, targets, **metas)
 
-            loss = sum(loss_dict.values())
-            scaler.scale(loss).backward()
+              loss = sum(loss_dict.values())
+              scaler.scale(loss).backward()
+            except torch.OutOfMemoryError:
+              oom = True
+            if not oom:
+              break
+            outputs = loss_dict = loss = None
+            optimizer.zero_grad(set_to_none=True)
+            gc.collect()
+            torch.cuda.empty_cache()
+            if _attempt == OOM_RETRIES:
+              raise RuntimeError(f"CUDA OOM on step {i} after {OOM_RETRIES} retries")
+            print(f"[oom-retry] epoch {epoch} step {i} attempt {_attempt + 1}/{OOM_RETRIES}: "
+                  f"max objects/img {max_gt_num}; waiting {min(10 * (_attempt + 1), 120)} s", flush=True)
+            time.sleep(min(10 * (_attempt + 1), 120))
 
+          if True:
             if max_norm > 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
@@ -123,6 +151,10 @@ def train_one_epoch(
         # ema
         if ema is not None:
             ema.update(model)
+
+        # return a dense batch's burst memory to the other run sharing the GPU (no effect on the math)
+        if torch.cuda.is_available() and torch.cuda.memory_reserved() > RELEASE_RESERVED_BYTES:
+            torch.cuda.empty_cache()
 
         if lr_warmup_scheduler is not None:
             lr_warmup_scheduler.step()

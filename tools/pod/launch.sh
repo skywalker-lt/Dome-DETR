@@ -47,7 +47,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 # PyTorch passes worker tensors through file descriptors; the default soft limit of 1024 ran out during the
 # first test evaluation ("received 0 items of ancdata").
 ulimit -n "$(ulimit -Hn)"
-# Resume automatically after a crash (up to MAX_RETRIES times), always from the newest local last.pth.
+# Resume automatically after a crash (up to MAX_RETRIES times, default 50), always from the newest local last.pth.
 RC=1; TRY=0
 while :; do
   RESUME=(); [ -f "$RUN/last.pth" ] && RESUME=(-r "$RUN/last.pth")
@@ -55,7 +55,7 @@ while :; do
   $PY train.py -c "$CFG" --seed "$SEED" "${RESUME[@]}" >> "$RUN/train.out" 2>&1
   RC=$?
   [ $RC -eq 0 ] && break
-  TRY=$((TRY + 1)); [ $TRY -gt ${MAX_RETRIES:-3} ] && break
+  TRY=$((TRY + 1)); [ $TRY -gt ${MAX_RETRIES:-50} ] && break
   echo "[launch] train.py exited $RC; resuming in 60 s" >> "$RUN/train.out"; sleep 60
 done
 kill $WATCH 2>/dev/null
