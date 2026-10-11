@@ -40,6 +40,7 @@ watch_backups() {
   done
 }
 watch_backups & WATCH=$!
+export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 $PY train.py -c "$CFG" --seed "$SEED" "${RESUME[@]}" >> "$RUN/train.out" 2>&1
 RC=$?
