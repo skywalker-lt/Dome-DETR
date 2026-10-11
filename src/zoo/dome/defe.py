@@ -128,6 +128,15 @@ class LiteDeFE(nn.Module):
         return density, reg_value
     
 
+import functools
+
+
+@functools.lru_cache(maxsize=4096)
+def _cached_gaussian_kernel(sigma_x, sigma_y):
+    """GaussHeatmapGenerator._gaussian_kernel, cached: it depends only on the (integer-derived) sigmas."""
+    return GaussHeatmapGenerator._gaussian_kernel(None, sigma_x, sigma_y)
+
+
 class GaussHeatmapGenerator:
     def __init__(self, img_size=(640, 640), sigma_ratio=1.2):
         self.img_size = img_size
@@ -136,18 +145,25 @@ class GaussHeatmapGenerator:
     def __call__(self, bboxes):
         H, W = self.img_size
         heatmap = torch.zeros((H, W), dtype=torch.float32)
-        
+        # One device->host copy per image (the released loop read each coordinate of each box separately).
+        # Same fp32 products and int truncation as before.
+        if isinstance(bboxes, torch.Tensor):
+            scale = torch.tensor([W, H, W, H], dtype=bboxes.dtype, device=bboxes.device)
+            bboxes = (bboxes * scale).tolist()
+        else:
+            bboxes = [(b[0] * W, b[1] * H, b[2] * W, b[3] * H) for b in bboxes]
+
         for box in bboxes:
-            x_center, y_center, width, height = box
-            x_center_px = int(x_center * W)
-            y_center_px = int(y_center * H)
-            w_px = max(int(width * W), 1)
-            h_px = max(int(height * H), 1)
+            x_center_s, y_center_s, width_s, height_s = box
+            x_center_px = int(x_center_s)
+            y_center_px = int(y_center_s)
+            w_px = max(int(width_s), 1)
+            h_px = max(int(height_s), 1)
             
             sigma_x = max(w_px * self.sigma_ratio, 1.0)
             sigma_y = max(h_px * self.sigma_ratio, 1.0)
             
-            kernel = self._gaussian_kernel(sigma_x, sigma_y)
+            kernel = _cached_gaussian_kernel(sigma_x, sigma_y)
             if kernel.numel() == 0:  # 使用 numel() 替代 size
                 continue
             

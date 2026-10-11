@@ -299,17 +299,13 @@ class WindowProcessor(nn.Module):
         num_win_h = H // window_size
         num_win_w = W // window_size
         
-        for i, j in valid_indices:
-            # 原始窗口特征 [C, h, w]
-            win_feat = windows[i, j]
-            
-            # 拼接特征和位置编码
-            combined = win_feat
-            
-            batch_features.append(combined.unsqueeze(0))
-            batch_glob_pos_embed.append(self._get_abs_embedding(glob_pos_embed, i, j, window_size, window_size))
-        
-        return torch.cat(batch_features, dim=0), torch.stack(batch_glob_pos_embed)  # [N, C]
+        # Gather all valid windows at once (the released per-window loop indexed with GPU scalars, which cost
+        # ~3 host syncs per window; same values and order as before).
+        vi, vj = valid_indices[:, 0], valid_indices[:, 1]
+        feats = windows[vi, vj]  # [N, C, h, w]
+        C = glob_pos_embed.shape[0]
+        pos = glob_pos_embed.view(C, num_win_h, window_size, num_win_w, window_size).permute(1, 3, 0, 2, 4)[vi, vj]
+        return feats, pos
 
     
     def _encode_features(self, features, rel_pos_embed, glob_pos_embeds):
@@ -325,13 +321,11 @@ class WindowProcessor(nn.Module):
 
     def _reconstruct_features(self, reconstructed, batch_idx, feats, indices, win_h, win_w):
         """特征图重建"""
-        for idx, (i, j) in enumerate(indices):
-            h_start = i * win_h
-            h_end = h_start + win_h
-            w_start = j * win_w
-            w_end = w_start + win_w
-            
-            reconstructed[batch_idx, :, h_start:h_end, w_start:w_end] += feats[idx]
+        # Scatter-add all windows at once into a window view of the map (windows are distinct, so this equals the
+        # released per-window `+=` loop).
+        C, H, W = reconstructed.shape[1:]
+        rw = reconstructed[batch_idx].view(C, H // win_h, win_h, W // win_w, win_w).permute(1, 3, 0, 2, 4)
+        rw.index_put_((indices[:, 0], indices[:, 1]), feats.to(rw.dtype), accumulate=True)
 
     def _get_abs_embedding(self, global_emb, i, j, win_h, win_w):
         # global_emb形状: [C, H, W]
