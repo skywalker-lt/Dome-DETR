@@ -211,6 +211,7 @@ class BaseSolver(object):
         if "last_epoch" in state:
             self.last_epoch = state["last_epoch"]
             print("Load last_epoch")
+        self._resume_fit_state = state.get("fit_state")
 
         for k, v in self.__dict__.items():
             if hasattr(v, "load_state_dict") and k in state:

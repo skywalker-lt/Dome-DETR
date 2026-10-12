@@ -28,6 +28,23 @@ from ..optim import ModelEMA, Warmup
 
 SAVE_INTERMEDIATE_VISUALIZE_RESULT = os.environ.get('SAVE_INTERMEDIATE_VISUALIZE_RESULT', 'False') == 'True'
 
+def _rng_snapshot():
+    import random as _random
+    import numpy as _np
+    return (_random.getstate(), _np.random.get_state(), torch.get_rng_state(),
+            torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
+
+
+def _rng_restore(st):
+    import random as _random
+    import numpy as _np
+    _random.setstate(st[0])
+    _np.random.set_state(st[1])
+    torch.set_rng_state(st[2])
+    if st[3] is not None:
+        torch.cuda.set_rng_state_all(st[3])
+
+
 OOM_RETRIES = int(os.environ.get("DOME_OOM_RETRIES", "30"))
 RELEASE_RESERVED_BYTES = int(float(os.environ.get("DOME_RELEASE_RESERVED_GB", "40")) * 2**30)
 
@@ -88,8 +105,10 @@ def train_one_epoch(
           # tensors, free the cache, wait, and redo the same batch (identical data; only the random denoising
           # noise is redrawn). Optimizer, scaler and EMA are only touched after a successful backward.
           targets_in = targets
+          rng0 = _rng_snapshot()  # a retry replays the same random draws
           for _attempt in range(OOM_RETRIES + 1):
             oom = False
+            _rng_restore(rng0)
             targets = [{k: v.clone() for k, v in t.items()} for t in targets_in]
             try:
               with torch.autocast(device_type=str(device), cache_enabled=True):
@@ -138,8 +157,10 @@ def train_one_epoch(
         else:
             # fp32 path (the released Dome configs set use_amp: False): same-batch OOM retry as above
             targets_in = targets
+            rng0 = _rng_snapshot()  # a retry replays the same random draws
             for _attempt in range(OOM_RETRIES + 1):
                 oom = False
+                _rng_restore(rng0)
                 targets = [{k: v.clone() for k, v in t.items()} for t in targets_in]
                 try:
                     outputs = model(samples, targets=targets)

@@ -5,6 +5,7 @@ Copyright(c) 2024 The D-FINE Authors. All Rights Reserved.
 
 import datetime
 import json
+import os
 import time
 
 import torch
@@ -15,6 +16,34 @@ from .det_engine import evaluate, train_one_epoch
 
 
 class DetSolver(BaseSolver):
+    def _seed_epoch(self, epoch):
+        """Reseed every RNG from (run seed, epoch) so an epoch's data order, worker augmentations, multi-scale choices
+        and denoising noise depend only on the epoch, never on how the run got there (exact resume)."""
+        import random as _random
+        import numpy as _np
+        base = int(getattr(self.cfg, "seed", None) or 0)
+        s = (base * 1_000_003 + int(epoch) * 7_919 + 12_345) % (2**31 - 1)
+        _random.seed(s)
+        _np.random.seed(s)
+        torch.manual_seed(s)  # also seeds every CUDA device
+        return s
+
+    def _fit_state(self, best_stat, best_stat_print, top1):
+        return {"last_epoch": self.last_epoch, "best_stat": best_stat, "best_stat_print": best_stat_print, "top1": top1,
+                "not_improved_count": self.not_improved_count, "stage2_reload": self.stage2_reload,
+                "ema_decay": self.ema.decay if self.ema is not None else None}
+
+    def _save_last(self, best_stat, best_stat_print, top1):
+        """Write last.pth atomically at the very end of an epoch (after evaluation and every bookkeeping step that can
+        change model, EMA or fit state), with the fit state inside, so resuming from it is the same as not stopping."""
+        if not self.output_dir or not dist_utils.is_main_process():
+            return
+        state = self.state_dict()
+        state["fit_state"] = self._fit_state(best_stat, best_stat_print, top1)
+        tmp = self.output_dir / "last.pth.tmp"
+        torch.save(state, tmp)
+        os.replace(tmp, self.output_dir / "last.pth")
+
     def _write_fit_state(self, path, best_stat, best_stat_print, top1):
         if path is None:
             return
@@ -52,7 +81,8 @@ class DetSolver(BaseSolver):
         best_stat = {
             "epoch": -1,
         }
-        if self.last_epoch > 0:
+        restored = getattr(self, "_resume_fit_state", None)
+        if self.last_epoch > 0 and restored is None:
             module = self.ema.module if self.ema else self.model
             test_stats, coco_evaluator = evaluate(
                 module,
@@ -70,8 +100,10 @@ class DetSolver(BaseSolver):
 
         best_stat_print = best_stat.copy()
         fit_state_path = self.output_dir / "fit_state.json" if self.output_dir else None
-        if self.last_epoch > 0 and fit_state_path is not None and fit_state_path.exists():
+        fs = restored
+        if fs is None and self.last_epoch > 0 and fit_state_path is not None and fit_state_path.exists():
             fs = json.loads(fit_state_path.read_text())
+        if fs is not None:
             if fs.get("last_epoch") == self.last_epoch:
                 best_stat, best_stat_print, top1 = fs["best_stat"], fs["best_stat_print"], fs["top1"]
                 self.not_improved_count, self.stage2_reload = fs["not_improved_count"], fs["stage2_reload"]
@@ -82,6 +114,7 @@ class DetSolver(BaseSolver):
         start_time = time.time()
         start_epoch = self.last_epoch + 1
         for epoch in range(start_epoch, args.epoches):
+            self._seed_epoch(epoch)
             self.train_dataloader.set_epoch(epoch)
             # self.train_dataloader.dataset.set_epoch(epoch)
             if dist_utils.is_dist_available_and_initialized():
@@ -120,13 +153,8 @@ class DetSolver(BaseSolver):
 
             self.last_epoch += 1
 
-            if self.output_dir:
-                checkpoint_paths = [self.output_dir / "last.pth"]
-                # extra checkpoint before LR drop and every 100 epochs
-                if (epoch + 1) % args.checkpoint_freq == 0:
-                    checkpoint_paths.append(self.output_dir / f"checkpoint{epoch:04}.pth")
-                for checkpoint_path in checkpoint_paths:
-                    dist_utils.save_on_master(self.state_dict(), checkpoint_path)
+            if self.output_dir and (epoch + 1) % args.checkpoint_freq == 0:
+                dist_utils.save_on_master(self.state_dict(), self.output_dir / f"checkpoint{epoch:04}.pth")
 
             module = self.ema.module if self.ema else self.model
 
@@ -135,6 +163,7 @@ class DetSolver(BaseSolver):
                     with (self.output_dir / "log.txt").open("a") as f:
                         f.write(json.dumps({**{f"train_{k}": v for k, v in train_stats.items()}, "epoch": epoch}) + "\n")
                     self._write_fit_state(fit_state_path, best_stat, best_stat_print, top1)
+                self._save_last(best_stat, best_stat_print, top1)
                 continue
 
             print("Evaluate state starting...")
@@ -235,6 +264,9 @@ class DetSolver(BaseSolver):
                                 coco_evaluator.coco_eval["bbox"].eval,
                                 self.output_dir / "eval" / name,
                             )
+
+            # last: everything above (evaluation, best checkpoints, EMA/stage reloads) is now part of the state
+            self._save_last(best_stat, best_stat_print, top1)
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
