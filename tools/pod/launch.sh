@@ -40,6 +40,8 @@ watch_backups() {
 }
 watch_backups & WATCH=$!
 export PYTHONUNBUFFERED=1
+# per-pod overrides (e.g. DOME_RELEASE_RESERVED_GB on a pod that runs two memory-heavy runs)
+[ -f /root/pod.env ] && . /root/pod.env
 # The pod container is CPU-quota limited (27 cores); torch defaults to one OpenMP thread per host core (256),
 # which spins and gets throttled. A few threads per run is enough for the small CPU-side ops.
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4} MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
