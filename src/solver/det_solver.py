@@ -124,6 +124,9 @@ class DetSolver(BaseSolver):
                 if dist_utils.is_dist_available_and_initialized():
                     torch.distributed.barrier()
                 self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
+                # the reload also overwrote the epoch counter with the checkpoint's; keep the true one (the reloaded
+                # weights/optimizer/scheduler are exactly what the released recipe uses, only the counter is fixed)
+                self.last_epoch = epoch - 1
                 self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
                 print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
 
@@ -236,6 +239,7 @@ class DetSolver(BaseSolver):
                             self.load_resume_state(str(self.output_dir / "best_stg2.pth"))
                         else:
                             self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
+                        self.last_epoch = epoch  # true epoch (the reload reset the counter to the checkpoint's)
                         print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
                     else:
                         print(f"Tolerate undesirable result for patience: {self.not_improved_count} / {self.patience} ")
