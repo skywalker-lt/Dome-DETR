@@ -19,13 +19,15 @@ PYEOF
 RUN=${RUN##*$'\n'}
 BK="$BACKUP_ROOT/$NAME"
 mkdir -p "$RUN" "$BK"
+# a finished run is never restarted (watchdogs, retries, manual relaunches)
+if [ -f "$RUN/FINISHED" ]; then echo "[launch] $RUN is FINISHED; refusing to restart" | tee -a "$RUN/train.out"; exit 0; fi
 cd "$REPO"
 if [ ! -f "$RUN/last.pth" ] && [ -f "$BK/last.pth" ]; then
   echo "[launch] restoring $BK -> $RUN"; cp -n "$BK"/*.pth "$BK"/fit_state.json "$BK"/log.txt "$RUN/" 2>/dev/null
 fi
 
 backup() {
-  for f in last.pth best_stg1.pth best_stg2.pth fit_state.json log.txt train.out; do
+  for f in last.pth best_stg1.pth best_stg2.pth fit_state.json log.txt train.out FINISHED; do
     [ -f "$RUN/$f" ] && cp "$RUN/$f" "$BK/$f.tmp" && mv "$BK/$f.tmp" "$BK/$f"
   done
   echo "[launch] $(date -u +%FT%TZ) backed up epoch $1 to $BK" >> "$RUN/backup.log"
@@ -61,6 +63,7 @@ while :; do
   echo "[launch] train.py exited $RC; resuming in 60 s" >> "$RUN/train.out"; sleep 60
 done
 kill $WATCH 2>/dev/null
+[ $RC -eq 0 ] && touch "$RUN/FINISHED"
 backup final
 echo "[launch] train.py exited $RC" | tee -a "$RUN/train.out"
 exit $RC
