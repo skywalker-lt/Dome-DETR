@@ -1,0 +1,7 @@
+# DINOv3 ViT-Tiny path, released recipe, but with NO checkpoint reloads in stage 2. Started from the DINOv3 arm's
+# checkpoint0107.pth, so epochs 0-107 are identical to Dome-S-dino-AITOD-pod.yml and only stage 2 differs.
+__include__: [
+  './Dome-S-dino-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_dino_noreload
+reload_policy: none
