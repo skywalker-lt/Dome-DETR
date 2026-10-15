@@ -111,6 +111,9 @@ class DetSolver(BaseSolver):
                     self.ema.decay = fs["ema_decay"]
                 print(f"Restored fit state from {fit_state_path}: {fs}")
         eval_interval = int(args.yaml_cfg.get("eval_interval", 1) or 1)
+        # "released": stage-2 start and patience reloads of best_stg1 as in the released code; "none": no reloads at all
+        reload_policy = str(args.yaml_cfg.get("reload_policy", "released"))
+        assert reload_policy in ("released", "none"), reload_policy
         start_time = time.time()
         start_epoch = self.last_epoch + 1
         for epoch in range(start_epoch, args.epoches):
@@ -120,7 +123,11 @@ class DetSolver(BaseSolver):
             if dist_utils.is_dist_available_and_initialized():
                 self.train_dataloader.sampler.set_epoch(epoch)
 
-            if epoch == self.train_dataloader.collate_fn.stop_epoch:
+            if epoch == self.train_dataloader.collate_fn.stop_epoch and reload_policy == "none":
+                # no stage-2 reload: keep training from this epoch's own weights; only the EMA restart decay is applied
+                self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
+                print(f"Stage 2 at epoch {epoch} without reload (reload_policy=none), EMA decay {self.ema.decay}")
+            elif epoch == self.train_dataloader.collate_fn.stop_epoch:
                 if dist_utils.is_dist_available_and_initialized():
                     torch.distributed.barrier()
                 self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
@@ -228,6 +235,8 @@ class DetSolver(BaseSolver):
                             self.state_dict(), self.output_dir / "best_stg1.pth"
                         )
 
+                elif epoch >= self.train_dataloader.collate_fn.stop_epoch and reload_policy == "none":
+                    pass  # no patience reloads / EMA-decay search (reload_policy=none)
                 elif epoch >= self.train_dataloader.collate_fn.stop_epoch:
                     if self.not_improved_count >= self.patience:
                         best_stat = {

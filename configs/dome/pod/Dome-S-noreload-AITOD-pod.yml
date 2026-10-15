@@ -1,0 +1,9 @@
+# Dense Dome-S, released recipe, but with NO checkpoint reloads in stage 2 (no reload of best_stg1 at the stage-2
+# start, no patience reloads / EMA-decay search). Started from the dense control's checkpoint0107.pth (end of epoch
+# 107), so epochs 0-107 are identical to Dome-S-AITOD-pod.yml and only stage 2 differs.
+__include__: [
+  '../Dome-S-AITOD.yml',
+  './aitod_pod_data.yml',
+]
+output_dir: /root/runs/dome_s_dense_noreload
+reload_policy: none
