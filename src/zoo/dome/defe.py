@@ -55,18 +55,18 @@ class DepthwiseSeparableConv(nn.Module):
         return self.relu(x)
 
 class OptimizedDeFE(nn.Module):
-    def __init__(self):
+    def __init__(self, width=256):
         super().__init__()
         self.cfg = [
-            (256, 1),
-            (256, 2),
-            (256, 3),
-            (256, 1),
-            (256, 1)
+            (width, 1),
+            (width, 2),
+            (width, 3),
+            (width, 1),
+            (width, 1)
         ]
         
         layers = []
-        in_ch = 256
+        in_ch = width
         
         for idx, (out_ch, dilation) in enumerate(self.cfg):
             layers += [
@@ -84,26 +84,30 @@ class OptimizedDeFE(nn.Module):
         return self.layers(x)
 
 class LiteDeFE(nn.Module):
-    def __init__(self, in_channels=256):
+    """width / head_width: body and density-head channels (released 256 / 128). eval_per_image_norm: in eval mode,
+    normalise each image's density map by its own maximum instead of the batch maximum, so windows and queries no longer
+    depend on the other images in the batch (identical to the released behaviour at batch 1; training is unchanged)."""
+    def __init__(self, in_channels=256, width=256, head_width=128, eval_per_image_norm=False):
         super().__init__()
+        self.eval_per_image_norm = eval_per_image_norm
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels, 256, kernel_size=1),
+            nn.Conv2d(in_channels, width, kernel_size=1),
             nn.AvgPool2d(kernel_size=2)
         )
         
-        self.defe = OptimizedDeFE()
+        self.defe = OptimizedDeFE(width)
         
         self.density_head = nn.Sequential(
-            nn.Conv2d(256, 128, 3, padding=1),
+            nn.Conv2d(width, head_width, 3, padding=1),
             nn.Upsample(scale_factor=4, mode='bilinear', align_corners=False),
-            nn.Conv2d(128, 1, 1),  # 输出 [B,1,H,W]
+            nn.Conv2d(head_width, 1, 1),  # 输出 [B,1,H,W]
             nn.Sigmoid()
         )
 
         self.regression_head = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(256, 1),
+            nn.Linear(width, 1),
             nn.Sigmoid()
         )
     
@@ -120,7 +124,10 @@ class LiteDeFE(nn.Module):
         )
 
         # 对density进行0-1归一化
-        if density.max() > 0:
+        if self.eval_per_image_norm and not self.training:
+            peak = density.amax(dim=(1, 2, 3), keepdim=True)
+            density = torch.where(peak > 0, density / peak.clamp_min(torch.finfo(density.dtype).tiny), density)
+        elif density.max() > 0:
             density = density / density.max()
 
         reg_value = self.regression_head(x)

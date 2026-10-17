@@ -1,0 +1,9 @@
+# Thin twin seed 0, resumed from its checkpoint0155.pth to epoch 159 without the patience reload (its released run
+# reloaded best_stg1 after epoch 159's evaluation, so no epoch-159 weights exist). Everything else as the original run,
+# including the batch-max density normalisation and per-epoch evaluation, so epochs 156-159 can be compared with its
+# log (GPU nondeterminism check).
+__include__: [
+  './Dome-S-thin-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_thin_r155
+reload_policy: none

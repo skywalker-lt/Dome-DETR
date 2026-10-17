@@ -1,0 +1,8 @@
+# Protocol FP-1 (seminar 10), included by every new run: no checkpoint reloads, test evaluation for monitoring only
+# (after epochs 11 + 12j and the last 12 epochs), the result is the fixed final-epoch EMA scored at batch 1 on the full
+# test set, and in eval mode each image's density map is normalised by its own maximum (not the batch maximum).
+reload_policy: none
+eval_schedule: fp1
+
+HybridEncoder:
+  defe_eval_per_image_norm: True

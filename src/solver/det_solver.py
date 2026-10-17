@@ -111,6 +111,17 @@ class DetSolver(BaseSolver):
                     self.ema.decay = fs["ema_decay"]
                 print(f"Restored fit state from {fit_state_path}: {fs}")
         eval_interval = int(args.yaml_cfg.get("eval_interval", 1) or 1)
+        # "every" (released): test evaluation after every eval_interval-th epoch. "fp1": monitoring only, after epochs
+        # 11 + 12j and the last 12 epochs; the reported result is the fixed final-epoch EMA, never a selected epoch.
+        eval_schedule = str(args.yaml_cfg.get("eval_schedule", "every"))
+        assert eval_schedule in ("every", "fp1"), eval_schedule
+
+        def should_eval(ep):
+            if ep == args.epoches - 1:
+                return True
+            if eval_schedule == "fp1":
+                return (ep + 1) % 12 == 0 or ep >= args.epoches - 12
+            return (ep + 1) % eval_interval == 0 or ep + 1 == self.train_dataloader.collate_fn.stop_epoch
         # "released": stage-2 start and patience reloads of best_stg1 as in the released code; "none": no reloads at all
         reload_policy = str(args.yaml_cfg.get("reload_policy", "released"))
         assert reload_policy in ("released", "none"), reload_policy
@@ -124,9 +135,9 @@ class DetSolver(BaseSolver):
                 self.train_dataloader.sampler.set_epoch(epoch)
 
             if epoch == self.train_dataloader.collate_fn.stop_epoch and reload_policy == "none":
-                # no stage-2 reload: keep training from this epoch's own weights; only the EMA restart decay is applied
-                self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
-                print(f"Stage 2 at epoch {epoch} without reload (reload_policy=none), EMA decay {self.ema.decay}")
+                # no stage-2 reload: keep training from this epoch's own weights. (Assigning ema.decay, as the released
+                # branch below does, has no effect: ModelEMA.decay_fn captures the decay at construction.)
+                print(f"Stage 2 at epoch {epoch} without reload (reload_policy=none)")
             elif epoch == self.train_dataloader.collate_fn.stop_epoch:
                 if dist_utils.is_dist_available_and_initialized():
                     torch.distributed.barrier()
@@ -168,7 +179,7 @@ class DetSolver(BaseSolver):
 
             module = self.ema.module if self.ema else self.model
 
-            if (epoch + 1) % eval_interval != 0 and epoch != args.epoches - 1 and epoch + 1 != self.train_dataloader.collate_fn.stop_epoch:
+            if not should_eval(epoch):
                 if self.output_dir and dist_utils.is_main_process():
                     with (self.output_dir / "log.txt").open("a") as f:
                         f.write(json.dumps({**{f"train_{k}": v for k, v in train_stats.items()}, "epoch": epoch}) + "\n")

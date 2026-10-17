@@ -1,0 +1,12 @@
+# N1-E: thin twin with a narrow DeFE (body width 64, density-head width 32; released 256 / 128), FP-1, seed 0.
+# Evaluated and counted with the exact folds (src/zoo/dome/fold.py). Its window threshold is calibrated afterwards,
+# label-free, on the scene-disjoint split V.
+__include__: [
+  './Dome-S-thin-AITOD-pod.yml',
+  './fp1_protocol.yml',
+]
+output_dir: /root/runs/dome_s_n1e_fp1_s0
+
+HybridEncoder:
+  defe_width: 64
+  defe_head_width: 32

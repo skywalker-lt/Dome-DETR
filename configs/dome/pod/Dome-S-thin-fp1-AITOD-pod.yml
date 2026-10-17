@@ -1,0 +1,7 @@
+# N2: thin twin under protocol FP-1, launched with seed 1 (a seed replicate of thin seed 0; measures run-to-run noise).
+# Training code identical to thin seed 0.
+__include__: [
+  './Dome-S-thin-AITOD-pod.yml',
+  './fp1_protocol.yml',
+]
+output_dir: /root/runs/dome_s_thin_fp1_s1

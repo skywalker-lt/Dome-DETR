@@ -514,8 +514,16 @@ class DomeTransformer(nn.Module):
         layer_scale=1,
         min_num_select=300,
         max_num_select=1500,
+        paqi_density_fix=False,
+        paqi_iou_offset=0.0,
     ):
         super().__init__()
+        # paqi_density_fix: read each query's density at (row=cy, col=cx); the released code reads it at (row=cx, col=cy).
+        # paqi_iou_offset: constant added to every PAQI NMS IoU threshold (a query-count-matched control for the fix).
+        self.paqi_density_fix = paqi_density_fix
+        self.paqi_iou_offset = paqi_iou_offset
+        # set by src.zoo.dome.fold.fold_exact: per-level (W, b) of input_proj folded into enc_output.proj (inference only)
+        self.folded_enc_proj = None
         assert len(feat_channels) <= num_levels
         assert len(feat_strides) == len(feat_channels)
 
@@ -764,8 +772,26 @@ class DomeTransformer(nn.Module):
         return anchors, valid_mask
 
 
+    def _folded_enc_output(self, memory, feats, spatial_shapes, valid_mask):
+        """enc_output(memory) with input_proj folded into enc_output.proj on the levels that have a 1x1 projection
+        (exact at inference: BN uses running statistics). Invalid anchors keep proj(0) = bias, as in the released path."""
+        proj, outs, n0 = self.enc_output.proj, [], 0
+        for lvl, (h, w) in enumerate(spatial_shapes):
+            n = h * w
+            fold = self.folded_enc_proj[lvl] if lvl < len(self.folded_enc_proj) else None
+            if fold is None:
+                outs.append(proj(memory[:, n0:n0 + n]))
+            else:
+                x = feats[lvl].flatten(2).permute(0, 2, 1)
+                outs.append(x @ fold[0].t() + fold[1])
+            n0 += n
+        y = torch.cat(outs, 1)
+        y = torch.where(valid_mask.bool(), y, proj.bias.expand_as(y))
+        return self.enc_output.norm(y)
+
     def _get_decoder_input(
-        self, memory: torch.Tensor, spatial_shapes, defe_window_mask=None, defe_feature=None, num_classes=80, H=800, W=800
+        self, memory: torch.Tensor, spatial_shapes, defe_window_mask=None, defe_feature=None, num_classes=80, H=800, W=800,
+        feats=None,
     ):
         # prepare input for decoder
         anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory.device)
@@ -774,7 +800,10 @@ class DomeTransformer(nn.Module):
             anchors = anchors.repeat(memory.shape[0], 1, 1)
         memory = valid_mask.to(memory.dtype) * memory
 
-        output_memory: torch.Tensor = self.enc_output(memory)
+        if self.folded_enc_proj is not None and feats is not None and not self.training:
+            output_memory: torch.Tensor = self._folded_enc_output(memory, feats, spatial_shapes, valid_mask)
+        else:
+            output_memory: torch.Tensor = self.enc_output(memory)
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
@@ -845,11 +874,15 @@ class DomeTransformer(nn.Module):
 
                 # 在合并候选框后计算中心坐标
                 cf_h, cf_w = defe_feature.shape[2:]
-                window_row = (cx * (cf_w - 1)).long().clamp(0, cf_w - 1)
-                window_col = (cy * (cf_h - 1)).long().clamp(0, cf_h - 1)
+                if self.paqi_density_fix:
+                    window_row = (cy * (cf_h - 1)).long().clamp(0, cf_h - 1)
+                    window_col = (cx * (cf_w - 1)).long().clamp(0, cf_w - 1)
+                else:  # released lookup: x and y swapped
+                    window_row = (cx * (cf_w - 1)).long().clamp(0, cf_w - 1)
+                    window_col = (cy * (cf_h - 1)).long().clamp(0, cf_h - 1)
                 density_values = defe_feature[b, :, window_row, window_col].squeeze(0).detach()  # 形状 (num_queries,)
 
-                iou_thresholds = 0.4 + 0.5 * density_values
+                iou_thresholds = 0.4 + 0.5 * density_values + self.paqi_iou_offset
 
                 # 获取每个anchor的类别分数和类别ID
                 scores, class_ids = log_combined.max(dim=1)
@@ -960,7 +993,7 @@ class DomeTransformer(nn.Module):
             defe_feature = None
 
         init_ref_contents, init_ref_points_unact, enc_topk_bboxes_list, enc_topk_logits_list, batch_queries_num = (
-            self._get_decoder_input(memory, spatial_shapes, defe_window_mask=defe_window_mask, defe_feature=defe_feature, num_classes=self.num_classes, H=img_inputs[0].shape[1], W=img_inputs[0].shape[2])
+            self._get_decoder_input(memory, spatial_shapes, defe_window_mask=defe_window_mask, defe_feature=defe_feature, num_classes=self.num_classes, H=img_inputs[0].shape[1], W=img_inputs[0].shape[2], feats=feats)
         )
 
         num_queries = max(batch_queries_num)

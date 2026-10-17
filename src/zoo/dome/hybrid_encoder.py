@@ -283,6 +283,10 @@ class HybridEncoder(nn.Module):
         use_mwas=False,
         mwas_window_size=20,
         level_dims=None,
+        defe_width=256,
+        defe_head_width=128,
+        defe_eval_per_image_norm=False,
+        window_threshold=0.05,
     ):
         super().__init__()
         self.num_feature_levels = num_feature_levels
@@ -311,6 +315,8 @@ class HybridEncoder(nn.Module):
         self.defe_type = defe_type
         self.use_mwas = use_mwas
         self.mwas_window_size = mwas_window_size
+        # initial density threshold of the adaptive MWAS window filter (released 0.05)
+        self.window_threshold = window_threshold
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -400,7 +406,8 @@ class HybridEncoder(nn.Module):
                 self.mwas_processor = WindowProcessor(embed_dim=d[1], dim_feedforward=dim_feedforward, num_layers=1)
                 pass
             if self.defe_type == "light":
-                self.DeFE = LiteDeFE(in_channels=d[0])
+                self.DeFE = LiteDeFE(in_channels=d[0], width=defe_width, head_width=defe_head_width,
+                                     eval_per_image_norm=defe_eval_per_image_norm)
             else:
                 raise ValueError(f"Invalid defe_type: {self.defe_type}")
 
@@ -529,7 +536,7 @@ class HybridEncoder(nn.Module):
             out["defe"]["density_map_pooled"] = defe_feature_pooled
             if self.use_mwas:
                 W, H = proj_feats[1].shape[2:]
-                defe_feature_filtered = self.adaptive_defe_filter(F.interpolate(defe_feature_pooled, size=(H, W), mode="bilinear", align_corners=True)).float()
+                defe_feature_filtered = self.adaptive_defe_filter(F.interpolate(defe_feature_pooled, size=(H, W), mode="bilinear", align_corners=True), init_thresh=self.window_threshold).float()
                 glob_pos_embed = self.build_2d_sincos_position_embedding(W, H, embed_dim=self.level_dims[1]).permute(0, 2, 1).view(-1, H, W).to(proj_feats[1].device)
                 enhanced_memory, defe_window_mask = self.mwas_processor(proj_feats[1], defe_feature_filtered, self.mwas_window_size, glob_pos_embed)
                 proj_feats[1] = enhanced_memory

@@ -1,0 +1,25 @@
+# A1: thin twin with scale-preserving stage-1 augmentation, FP-1, seed 1 (paired with N2, same seed and code).
+# Changes vs N2: no RandomZoomOut (it shrinks objects up to 4x, e.g. 12 px -> 3 px) and multi-scale 0.9-1.1
+# (720-880 px) instead of 0.75-1.25 (640-960 px). Photometric distortion and IoU crop are kept and still stop at 108.
+__include__: [
+  './Dome-S-thin-AITOD-pod.yml',
+  './fp1_protocol.yml',
+]
+output_dir: /root/runs/dome_s_thin_scaleaug_fp1_s1
+
+train_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [800, 800], }
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+      policy:
+        ops: ['RandomPhotometricDistort', 'RandomIoUCrop']
+  collate_fn:
+    scale_range: [0.9, 1.1]

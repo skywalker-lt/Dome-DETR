@@ -147,7 +147,7 @@ class BaseCollateFunction(object):
 #         return images, targets
 
 
-def generate_scales(base_size, base_size_repeat, window_size):
+def generate_scales(base_size, base_size_repeat, window_size, scale_range=(0.75, 1.25)):
     """修改后的generate_scales函数确保处理后尺寸满足(size/4)%window_size==0"""
     if isinstance(base_size, (list, tuple)):
         h, w = base_size
@@ -157,19 +157,19 @@ def generate_scales(base_size, base_size_repeat, window_size):
         w = (w // step) * step or step
 
         # 生成h的scales
-        h_min = int(h * 0.75)
+        h_min = int(h * scale_range[0])
         start_low_h = ((h_min + step - 1) // step) * step
         low_to_base_h = list(range(start_low_h, h + 1, step))
-        h_max = int(h * 1.25)
+        h_max = int(h * scale_range[1])
         end_high_h = (h_max // step) * step
         high_part_h = list(range(end_high_h, h - 1, -step)) if end_high_h >= h + step else []
         h_scales = low_to_base_h + [h] * base_size_repeat + high_part_h
 
         # 生成w的scales
-        w_min = int(w * 0.75)
+        w_min = int(w * scale_range[0])
         start_low_w = ((w_min + step - 1) // step) * step
         low_to_base_w = list(range(start_low_w, w + 1, step))
-        w_max = int(w * 1.25)
+        w_max = int(w * scale_range[1])
         end_high_w = (w_max // step) * step
         high_part_w = list(range(end_high_w, w - 1, -step)) if end_high_w >= w + step else []
         w_scales = low_to_base_w + [w] * base_size_repeat + high_part_w
@@ -184,10 +184,10 @@ def generate_scales(base_size, base_size_repeat, window_size):
         # 处理方形尺寸
         step = 4 * window_size
         base_size = (base_size // step) * step or step
-        base_min = int(base_size * 0.75)
+        base_min = int(base_size * scale_range[0])
         start_low = ((base_min + step - 1) // step) * step
         low_to_base = list(range(start_low, base_size + 1, step))
-        base_max = int(base_size * 1.25)
+        base_max = int(base_size * scale_range[1])
         end_high = (base_max // step) * step
         high_part = list(range(end_high, base_size - 1, -step)) if end_high >= base_size + step else []
         scales = low_to_base + [base_size] * base_size_repeat + high_part
@@ -202,6 +202,7 @@ class BatchImageCollateFunction(BaseCollateFunction):
         base_size=(640, 640),
         base_size_repeat=None,
         mwas_window_size=20,  # 新增window_size参数
+        scale_range=(0.75, 1.25),  # multi-scale range around base_size (released 0.75-1.25)
     ) -> None:
         super().__init__()
         self.base_size = base_size
@@ -216,7 +217,7 @@ class BatchImageCollateFunction(BaseCollateFunction):
                     raise ValueError(f"Cannot convert base_size string '{self.base_size}' to valid size format")
         self.window_size = mwas_window_size  # 初始化window_size
         self.scales = (
-            generate_scales(self.base_size, base_size_repeat, self.window_size) 
+            generate_scales(self.base_size, base_size_repeat, self.window_size, tuple(scale_range)) 
             if base_size_repeat is not None 
             else None
         )
