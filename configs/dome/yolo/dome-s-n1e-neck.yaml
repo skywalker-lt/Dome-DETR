@@ -1,0 +1,33 @@
+# Dome-S N1-E neck (thin twin with DeFE body 64, density head 32) as a YOLO-style layer list.
+# Layers 0-3: backbone outputs P2-P5 (HGNetv2-B0: 64, 256, 512, 1024 channels; strides 4, 8, 16, 32).
+# Rows: [from, repeats, module, args, released-name]. Input channels are inferred; the first arg is the output
+# channels for InputProj / ConvNormFuse / SCDown / RepNCSPELAN4 ([c2, c3, c4, n]). A trailing dict = keyword args.
+# The released-name field lets HybridEncoder checkpoints load (src/zoo/dome/yolo_encoder.convert_hybrid_state_dict).
+inputs: [64, 256, 512, 1024]
+strides: [4, 8, 16, 32]
+encoder:
+  - [0, 1, InputProj, [64], input_proj.0]                    # 4  P2 projection
+  - [1, 1, InputProj, [128], input_proj.1]                   # 5  P3
+  - [2, 1, InputProj, [256], input_proj.2]                   # 6  P4
+  - [3, 1, InputProj, [256], input_proj.3]                   # 7  P5
+  - [[4, 5], 1, DeFEMWAS, [10, 64, 32, 1024], DeFE]        # 8  density on P2, window attention on P3 -> P3'
+  - [7, 1, AIFI, [8, 1024, 0.0, gelu, 1], encoder.0]         # 9  transformer on P5
+  - [9, 1, ConvNormFuse, [256, 1, 1], lateral_convs.0]       # 10 top-down: P5 -> P4 width
+  - [[10, 6], 1, UpConcat, []]                               # 11
+  - [11, 1, RepNCSPELAN4, [256, 512, 64, 1], fpn_blocks.0]   # 12 P4 (top-down)
+  - [12, 1, ConvNormFuse, [128, 1, 1], lateral_convs.1]      # 13 -> P3 width
+  - [[13, 8], 1, UpConcat, []]                               # 14
+  - [14, 1, RepNCSPELAN4, [128, 256, 32, 1], fpn_blocks.1]   # 15 P3 (top-down)
+  - [15, 1, ConvNormFuse, [64, 1, 1], lateral_convs.2]       # 16 -> P2 width
+  - [[16, 4], 1, UpConcat, []]                               # 17
+  - [17, 1, RepNCSPELAN4, [64, 128, 16, 1], fpn_blocks.2]    # 18 P2 out
+  - [18, 1, SCDown, [128, 3, 2], downsample_convs.0.0]       # 19 bottom-up
+  - [[19, 16], 1, Concat, []]                                # 20
+  - [20, 1, RepNCSPELAN4, [128, 256, 32, 1], pan_blocks.0]   # 21 P3 out
+  - [21, 1, SCDown, [256, 3, 2], downsample_convs.1.0]       # 22
+  - [[22, 13], 1, Concat, []]                                # 23
+  - [23, 1, RepNCSPELAN4, [256, 512, 64, 1], pan_blocks.1]   # 24 P4 out
+  - [24, 1, SCDown, [256, 3, 2], downsample_convs.2.0]       # 25
+  - [[25, 10], 1, Concat, []]                                # 26
+  - [26, 1, RepNCSPELAN4, [256, 512, 64, 1], pan_blocks.2]   # 27 P5 out
+outputs: [18, 21, 24, 27]

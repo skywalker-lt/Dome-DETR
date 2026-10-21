@@ -7,5 +7,6 @@ from .dome import DOME
 from .dome_criterion import DomeCriterion
 from .dome_decoder import DomeTransformer
 from .hybrid_encoder import HybridEncoder
+from .yolo_encoder import YoloEncoder
 from .matcher import HungarianMatcher
 from .postprocessor import DomePostProcessor

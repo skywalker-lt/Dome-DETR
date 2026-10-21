@@ -6,3 +6,6 @@ eval_schedule: fp1
 
 HybridEncoder:
   defe_eval_per_image_norm: True
+
+YoloEncoder:  # same setting for necks built from a YOLO-style layer list
+  defe_overrides: {eval_per_image_norm: True}

@@ -16,8 +16,10 @@ import torch.nn as nn
 @torch.no_grad()
 def fold_exact(model, cuts=("cut0", "cut0c", "cut0b")):
     applied = []
-    enc = getattr(model, "encoder", None)
-    defe = getattr(enc, "DeFE", None)
+    from .defe import LiteDeFE  # HybridEncoder.DeFE or a YoloEncoder DeFEMWAS row's DeFE
+    defes = [m for m in model.modules() if isinstance(m, LiteDeFE)]
+    assert len(defes) <= 1, "fold_exact expects at most one DeFE"
+    defe = defes[0] if defes else None
     if defe is not None and "cut0" in cuts:
         conv, pool = defe.conv1[0], defe.conv1[1]
         if isinstance(conv, nn.Conv2d) and conv.kernel_size == (1, 1) and isinstance(pool, nn.AvgPool2d):

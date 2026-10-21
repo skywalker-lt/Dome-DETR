@@ -1,0 +1,13 @@
+# Same model as Dome-S-n1e-fp1-AITOD-pod.yml, with the neck read from the YOLO-style layer list configs/dome/yolo/dome-s-n1e-neck.yaml
+# (src/zoo/dome/yolo_encoder.py). Released checkpoints load through convert_hybrid_state_dict; checked to give the
+# same outputs by tools/pod/verify_yolo_encoder.py.
+__include__: [
+  './Dome-S-n1e-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_yolo
+
+DOME:
+  encoder: YoloEncoder
+
+YoloEncoder:
+  model_yaml: configs/dome/yolo/dome-s-n1e-neck.yaml
