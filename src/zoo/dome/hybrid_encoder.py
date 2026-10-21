@@ -286,6 +286,7 @@ class HybridEncoder(nn.Module):
         defe_width=256,
         defe_head_width=128,
         defe_eval_per_image_norm=False,
+        defe_train_per_image_norm=False,
         window_threshold=0.05,
     ):
         super().__init__()
@@ -407,7 +408,8 @@ class HybridEncoder(nn.Module):
                 pass
             if self.defe_type == "light":
                 self.DeFE = LiteDeFE(in_channels=d[0], width=defe_width, head_width=defe_head_width,
-                                     eval_per_image_norm=defe_eval_per_image_norm)
+                                     eval_per_image_norm=defe_eval_per_image_norm,
+                                     train_per_image_norm=defe_train_per_image_norm)
             else:
                 raise ValueError(f"Invalid defe_type: {self.defe_type}")
 

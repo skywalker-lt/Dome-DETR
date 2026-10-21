@@ -1,0 +1,13 @@
+# N1-E seed 1 + the two DeFE training fixes (both also in upstream Dome-DETR): density map normalised per image in
+# training (released: by the batch maximum, while the GT heatmap is normalised per image), and a float count target
+# (released: cast to int64, i.e. 0 for every image with < 1,500 objects). Control: Dome-S-n1e-fp1-s1-AITOD-pod.yml.
+__include__: [
+  './Dome-S-n1e-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_defefix_fp1_s1
+
+HybridEncoder:
+  defe_train_per_image_norm: True
+
+DomeCriterion:
+  defe_float_count_target: True

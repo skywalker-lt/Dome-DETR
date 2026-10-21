@@ -1,0 +1,14 @@
+# N1-E seed 1 + training-only distillation from the frozen dense control (no-reload run, epoch-159 EMA; 32.6 AP):
+# per-anchor encoder class logits (KL, weight 20) and the DeFE density map (MSE, weight 2). Weights fixed before the run
+# from a CPU measurement (trained student: ~0.15 total, ~30% of the encoder classification loss; untrained: ~3.0, ~12% of
+# the total loss). 0 GFLOPs at inference. Control: Dome-S-n1e-fp1-s1-AITOD-pod.yml.
+__include__: [
+  './Dome-S-n1e-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_distill_fp1_s1
+
+distill:
+  teacher_config: configs/dome/pod/Dome-S-AITOD-pod.yml
+  teacher_ckpt: /root/teacher/dense_noreload_ep159.pth
+  w_enc: 20.0
+  w_density: 2.0

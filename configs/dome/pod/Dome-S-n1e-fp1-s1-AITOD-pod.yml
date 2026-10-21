@@ -1,0 +1,6 @@
+# N1-E seed 1 (launched with seed 1): second seed of N1-E, and the shared control of the two companions below
+# (same seed, same code; each companion changes one thing).
+__include__: [
+  './Dome-S-n1e-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_fp1_s1

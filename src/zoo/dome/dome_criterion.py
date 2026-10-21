@@ -46,6 +46,7 @@ class DomeCriterion(nn.Module):
         density_recall_penalty=0.3,
         mal_alpha=None,
         use_uni_set=True,
+        defe_float_count_target=False,
     ):
         """Create the criterion.
         Parameters:
@@ -73,6 +74,8 @@ class DomeCriterion(nn.Module):
         self.density_recall_penalty = density_recall_penalty
         self.mal_alpha = mal_alpha
         self.use_uni_set = use_uni_set
+        # released: the DeFE count target (n_gt - min) / (max - min) in [0, 1] is cast to int64 (0 below max_num_select)
+        self.defe_float_count_target = defe_float_count_target
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes, batch_queries_num=None):
         assert "pred_logits" in outputs
@@ -512,7 +515,7 @@ class DomeCriterion(nn.Module):
                     tgt_num = max_num_select
                 reg_targets.append((tgt_num - min_num_select) / (max_num_select - min_num_select))
 
-            reg_targets = torch.tensor(reg_targets, dtype=torch.int64).to(outputs["defe"]["reg_value"].device)
+            reg_targets = torch.tensor(reg_targets, dtype=torch.float32 if self.defe_float_count_target else torch.int64).to(outputs["defe"]["reg_value"].device)
             reg_value = outputs["defe"]["reg_value"]
 
             with torch.amp.autocast('cuda', dtype=torch.float16):

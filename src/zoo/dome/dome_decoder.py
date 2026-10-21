@@ -524,6 +524,9 @@ class DomeTransformer(nn.Module):
         self.paqi_iou_offset = paqi_iou_offset
         # set by src.zoo.dome.fold.fold_exact: per-level (W, b) of input_proj folded into enc_output.proj (inference only)
         self.folded_enc_proj = None
+        # set by src.solver.distill: keep the per-anchor encoder class logits and valid mask of the last forward
+        self.export_enc_logits = False
+        self.enc_dense_logits = None
         assert len(feat_channels) <= num_levels
         assert len(feat_strides) == len(feat_channels)
 
@@ -805,6 +808,8 @@ class DomeTransformer(nn.Module):
         else:
             output_memory: torch.Tensor = self.enc_output(memory)
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
+        if self.export_enc_logits:
+            self.enc_dense_logits = (enc_outputs_logits, valid_mask)
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
 

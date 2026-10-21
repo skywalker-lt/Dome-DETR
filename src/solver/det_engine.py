@@ -71,6 +71,7 @@ def train_one_epoch(
     ema: ModelEMA = kwargs.get("ema", None)
     scaler: GradScaler = kwargs.get("scaler", None)
     lr_warmup_scheduler: Warmup = kwargs.get("lr_warmup_scheduler", None)
+    distiller = kwargs.get("distiller", None)  # src.solver.distill.TeacherDistiller or None
 
     for i, (samples, targets) in enumerate(
         metric_logger.log_every(data_loader, print_freq, header)
@@ -128,6 +129,8 @@ def train_one_epoch(
 
               with torch.autocast(device_type=str(device), enabled=False):
                 loss_dict = criterion(outputs, targets, **metas)
+                if distiller is not None:
+                    loss_dict.update(distiller.losses(model, samples, outputs))
 
               loss = sum(loss_dict.values())
               scaler.scale(loss).backward()
@@ -165,6 +168,8 @@ def train_one_epoch(
                 try:
                     outputs = model(samples, targets=targets)
                     loss_dict = criterion(outputs, targets, **metas)
+                    if distiller is not None:
+                        loss_dict.update(distiller.losses(model, samples, outputs))
 
                     loss: torch.Tensor = sum(loss_dict.values())
                     optimizer.zero_grad()

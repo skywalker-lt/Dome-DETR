@@ -125,6 +125,14 @@ class DetSolver(BaseSolver):
         # "released": stage-2 start and patience reloads of best_stg1 as in the released code; "none": no reloads at all
         reload_policy = str(args.yaml_cfg.get("reload_policy", "released"))
         assert reload_policy in ("released", "none"), reload_policy
+        # optional training-only distillation from a frozen teacher (top-level `distill:` entry)
+        distiller = None
+        dcfg = args.yaml_cfg.get("distill")
+        if dcfg:
+            from .distill import TeacherDistiller
+            distiller = TeacherDistiller(dcfg["teacher_config"], dcfg["teacher_ckpt"], self.device,
+                                         w_enc=dcfg.get("w_enc", 1.0), w_density=dcfg.get("w_density", 1.0))
+            distiller.attach(self.model)
         start_time = time.time()
         start_epoch = self.last_epoch + 1
         for epoch in range(start_epoch, args.epoches):
@@ -164,6 +172,7 @@ class DetSolver(BaseSolver):
                 scaler=self.scaler,
                 lr_warmup_scheduler=self.lr_warmup_scheduler,
                 writer=self.writer,
+                distiller=distiller,
             )
 
 

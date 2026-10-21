@@ -87,9 +87,11 @@ class LiteDeFE(nn.Module):
     """width / head_width: body and density-head channels (released 256 / 128). eval_per_image_norm: in eval mode,
     normalise each image's density map by its own maximum instead of the batch maximum, so windows and queries no longer
     depend on the other images in the batch (identical to the released behaviour at batch 1; training is unchanged)."""
-    def __init__(self, in_channels=256, width=256, head_width=128, eval_per_image_norm=False):
+    def __init__(self, in_channels=256, width=256, head_width=128, eval_per_image_norm=False, train_per_image_norm=False):
         super().__init__()
         self.eval_per_image_norm = eval_per_image_norm
+        # train_per_image_norm: also in training (the GT heatmap is already normalised per image)
+        self.train_per_image_norm = train_per_image_norm
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, width, kernel_size=1),
             nn.AvgPool2d(kernel_size=2)
@@ -124,7 +126,7 @@ class LiteDeFE(nn.Module):
         )
 
         # 对density进行0-1归一化
-        if self.eval_per_image_norm and not self.training:
+        if (self.eval_per_image_norm and not self.training) or (self.train_per_image_norm and self.training):
             peak = density.amax(dim=(1, 2, 3), keepdim=True)
             density = torch.where(peak > 0, density / peak.clamp_min(torch.finfo(density.dtype).tiny), density)
         elif density.max() > 0:
