@@ -38,6 +38,9 @@ class TeacherDistiller:
         for p in self.teacher.parameters():
             p.requires_grad_(False)
         _unwrap(self.teacher).decoder.export_enc_logits = True
+        # stage 1 trains at random sizes (multi-scale collate): the teacher must not use the encoder's position
+        # embeddings cached for eval_spatial_size, so it builds them for the actual input like a training forward
+        _unwrap(self.teacher).encoder.eval_spatial_size = None
         self.w_enc, self.w_density = float(w_enc), float(w_density)
         n = sum(p.numel() for p in self.teacher.parameters())
         print(f"[distill] teacher {teacher_config} ({n / 1e6:.2f}M params) from {teacher_ckpt}; w_enc {w_enc} w_density {w_density}",
