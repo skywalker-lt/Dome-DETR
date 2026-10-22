@@ -3,6 +3,8 @@
 # test set, and in eval mode each image's density map is normalised by its own maximum (not the batch maximum).
 reload_policy: none
 eval_schedule: fp1
+# Ultralytics-style console rows, compact eval table, results.csv + results.png in the run directory
+console_style: yolo
 
 HybridEncoder:
   defe_eval_per_image_norm: True

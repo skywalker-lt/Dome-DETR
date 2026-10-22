@@ -133,6 +133,11 @@ class DetSolver(BaseSolver):
             distiller = TeacherDistiller(dcfg["teacher_config"], dcfg["teacher_ckpt"], self.device,
                                          w_enc=dcfg.get("w_enc", 1.0), w_density=dcfg.get("w_density", 1.0))
             distiller.attach(self.model)
+        # Ultralytics-style console, results.csv and results.png (console_style: yolo)
+        console = None
+        if str(args.yaml_cfg.get("console_style", "released")) == "yolo" and dist_utils.is_main_process():
+            from ..misc.yolo_console import YoloConsole
+            console = YoloConsole(args.epoches, self.output_dir)
         start_time = time.time()
         start_epoch = self.last_epoch + 1
         for epoch in range(start_epoch, args.epoches):
@@ -156,7 +161,8 @@ class DetSolver(BaseSolver):
                 self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
                 print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
 
-            print("Train starting...")
+            if console is None:
+                print("Train starting...")
 
 
             train_stats = train_one_epoch(
@@ -173,10 +179,12 @@ class DetSolver(BaseSolver):
                 lr_warmup_scheduler=self.lr_warmup_scheduler,
                 writer=self.writer,
                 distiller=distiller,
+                console=console,
             )
 
 
-            print("Training state finished.")
+            if console is None:
+                print("Training state finished.")
 
             if self.lr_warmup_scheduler is None or self.lr_warmup_scheduler.finished():
                 self.lr_scheduler.step()
@@ -189,6 +197,8 @@ class DetSolver(BaseSolver):
             module = self.ema.module if self.ema else self.model
 
             if not should_eval(epoch):
+                if console is not None:
+                    console.log_epoch(epoch, train_stats)
                 if self.output_dir and dist_utils.is_main_process():
                     with (self.output_dir / "log.txt").open("a") as f:
                         f.write(json.dumps({**{f"train_{k}": v for k, v in train_stats.items()}, "epoch": epoch}) + "\n")
@@ -196,7 +206,8 @@ class DetSolver(BaseSolver):
                 self._save_last(best_stat, best_stat_print, top1)
                 continue
 
-            print("Evaluate state starting...")
+            if console is None:
+                print("Evaluate state starting...")
 
             test_stats, coco_evaluator = evaluate(
                 module,
@@ -205,7 +216,10 @@ class DetSolver(BaseSolver):
                 self.val_dataloader,
                 self.evaluator,
                 self.device,
+                console=console,
             )
+            if console is not None:
+                console.log_epoch(epoch, train_stats, test_stats)
 
             # TODO
             for k in test_stats:

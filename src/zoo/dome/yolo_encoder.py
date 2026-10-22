@@ -195,6 +195,10 @@ class YoloEncoder(nn.Module):
         self.out_strides = list(spec.get("strides", feat_strides or []))
         self.n_in = n_in
 
+    @property
+    def use_defe(self):  # read by det_engine.evaluate (HybridEncoder attribute)
+        return any(n == "DeFEMWAS" for n in self.names)
+
     def forward(self, feats, img_inputs, targets=None):
         assert len(feats) == self.n_in
         ctx = {"img_inputs": img_inputs, "targets": targets}

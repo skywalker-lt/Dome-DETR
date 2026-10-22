@@ -73,9 +73,10 @@ def train_one_epoch(
     lr_warmup_scheduler: Warmup = kwargs.get("lr_warmup_scheduler", None)
     distiller = kwargs.get("distiller", None)  # src.solver.distill.TeacherDistiller or None
 
-    for i, (samples, targets) in enumerate(
-        metric_logger.log_every(data_loader, print_freq, header)
-    ):
+    console = kwargs.get("console", None)  # src.misc.yolo_console.YoloConsole (console_style: yolo) or None
+    batches = (console.train_iter(data_loader, metric_logger, epoch) if console is not None
+               else metric_logger.log_every(data_loader, print_freq, header))
+    for i, (samples, targets) in enumerate(batches):
 
         no_gt = False
         num_gts = [len(t["labels"]) for t in targets]
@@ -224,7 +225,8 @@ def train_one_epoch(
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    if console is None:
+        print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -236,6 +238,7 @@ def evaluate(
     data_loader,
     coco_evaluator: CocoEvaluator,
     device,
+    console=None,
 ):
     SAVE_TEST_VISUALIZE_RESULT = os.environ.get('SAVE_TEST_VISUALIZE_RESULT', 'False') == 'True'
     if SAVE_TEST_VISUALIZE_RESULT:
@@ -264,7 +267,8 @@ def evaluate(
     with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
         pending_futures = []
         
-        for samples, targets in metric_logger.log_every(data_loader, 10, header):
+        batches = console.eval_iter(data_loader) if console is not None else metric_logger.log_every(data_loader, 10, header)
+        for samples, targets in batches:
             samples = samples.to(device)
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -324,9 +328,10 @@ def evaluate(
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    if console is None:
+        print("Averaged stats:", metric_logger)
 
-    if model.encoder.use_defe:
+    if model.encoder.use_defe and console is None:
         print("defe Ample Rate:", ample_defe_predictions / total_defe_samples)
         print("defe Average Anchor Number:", total_anchor_num / total_defe_samples)
 
@@ -335,8 +340,14 @@ def evaluate(
 
     # accumulate predictions from all images
     if coco_evaluator is not None:
-        coco_evaluator.accumulate()
-        coco_evaluator.summarize()
+        if console is None:
+            coco_evaluator.accumulate()
+            coco_evaluator.summarize()
+        else:  # compact table instead of the accumulate messages and the 12-line COCO summary
+            import contextlib, io
+            with contextlib.redirect_stdout(io.StringIO()):
+                coco_evaluator.accumulate()
+                coco_evaluator.summarize()
 
     stats = {}
     # stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -345,6 +356,14 @@ def evaluate(
             stats["coco_eval_bbox"] = coco_evaluator.coco_eval["bbox"].stats.tolist()
         if "segm" in iou_types:
             stats["coco_eval_masks"] = coco_evaluator.coco_eval["segm"].stats.tolist()
+
+    if console is not None and "coco_eval_bbox" in stats:
+        coco = data_loader.dataset.coco
+        n_inst = sum(1 for a in coco.dataset["annotations"] if not a.get("iscrowd", 0))
+        extra = (f"queries/img {total_anchor_num / max(total_defe_samples, 1):.0f}, "
+                 f"queries >= objects on {100 * ample_defe_predictions / max(total_defe_samples, 1):.1f}% of images"
+                 if model.encoder.use_defe else "")
+        console.eval_table(stats["coco_eval_bbox"], len(coco.getImgIds()), n_inst, extra)
 
     return stats, coco_evaluator
 
