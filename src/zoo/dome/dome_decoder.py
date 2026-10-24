@@ -864,7 +864,7 @@ class DomeTransformer(nn.Module):
             bbox_combined = F.sigmoid(bbox_combined_unact)
 
             # 执行基于类别的NMS
-            if log_combined.size(0) > 0:
+            if log_combined.size(0) > 0 and defe_feature is not None:
                 # 转换anchor到边界框格式[x1, y1, x2, y2]
                 cx = bbox_combined[:, 0]
                 cy = bbox_combined[:, 1]
@@ -984,8 +984,9 @@ class DomeTransformer(nn.Module):
         feats = encoder_out["feats"]
         img_inputs = encoder_out["img_inputs"]
 
-        encoder_out["defe"]["min_num_select"] = self.min_num_select
-        encoder_out["defe"]["max_num_select"] = self.max_num_select
+        if "defe" in encoder_out:  # no density pathway (use_defe: False): fixed top-k queries, no PAQI NMS
+            encoder_out["defe"]["min_num_select"] = self.min_num_select
+            encoder_out["defe"]["max_num_select"] = self.max_num_select
 
         # input projection and embedding
         proj_feats, memory, spatial_shapes = self._get_encoder_input(feats)

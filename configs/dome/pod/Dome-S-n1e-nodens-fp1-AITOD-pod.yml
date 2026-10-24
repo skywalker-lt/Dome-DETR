@@ -1,0 +1,15 @@
+# N1-E seed 1 without the density pathway: no DeFE, no MWAS window attention, no PAQI density NMS; the decoder takes
+# a fixed top-600 queries per image (N1-E + DeFE fixes averages 607). The rest as the control.
+# Control: Dome-S-n1e-defefix-fp1-AITOD-pod.yml (seed 1).
+__include__: [
+  './Dome-S-n1e-defefix-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_nodens_fp1_s1
+
+HybridEncoder:
+  use_defe: False
+  use_mwas: False
+
+DomeTransformer:
+  min_num_select: 600
+  max_num_select: 600

@@ -15,7 +15,7 @@ from src.zoo.dome.fold import fold_exact  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("config"); ap.add_argument("ckpt"); ap.add_argument("img_dir"); ap.add_argument("n", type=int)
-ap.add_argument("--device", default="cpu"); ap.add_argument("--threads", type=int, default=4)
+ap.add_argument("--device", default="cpu"); ap.add_argument("--threads", type=int, default=4); ap.add_argument("--size", type=int, default=800)
 a = ap.parse_args()
 torch.set_num_threads(a.threads)
 os.chdir(REPO)
@@ -44,12 +44,12 @@ def run(m, x):
 
 rows = []
 for f in sorted(glob.glob(os.path.join(a.img_dir, "*.png")))[: a.n]:
-    x = torch.from_numpy(np.asarray(Image.open(f).convert("RGB").resize((800, 800)), dtype=np.float32) / 255.0)
+    x = torch.from_numpy(np.asarray(Image.open(f).convert("RGB").resize((a.size, a.size)), dtype=np.float32) / 255.0)
     x = x.permute(2, 0, 1)[None].to(dev)
     o0, g0 = run(ref, x)
     o1, g1 = run(cut, x)
     q = [int(o0["batch_queries_num"][0]), int(o1["batch_queries_num"][0])]
-    wdw = [int(o0["defe"]["defe_window_mask"].sum()), int(o1["defe"]["defe_window_mask"].sum())]
+    wdw = [int(o["defe"]["defe_window_mask"].sum()) if "defe" in o else -1 for o in (o0, o1)]
     same = o0["pred_logits"].shape == o1["pred_logits"].shape
     # order-independent: rounding-level differences may reorder queries at top-k, so match every folded query to its
     # nearest unfolded query (L1 over box + logits) and report the worst match
@@ -57,7 +57,7 @@ for f in sorted(glob.glob(os.path.join(a.img_dir, "*.png")))[: a.n]:
     z1 = torch.cat([o1["pred_boxes"][0], o1["pred_logits"][0]], -1)[: q[1]]
     nn_d = torch.cdist(z1.double(), z0.double(), p=1).min(1).values
     r = dict(img=os.path.basename(f), gf_ref=round(g0, 3), gf_cut=round(g1, 3), queries=q, windows=wdw,
-             d_density=float((o0["defe"]["density_map"] - o1["defe"]["density_map"]).abs().max()),
+             d_density=float((o0["defe"]["density_map"] - o1["defe"]["density_map"]).abs().max()) if "defe" in o0 else 0.0,
              d_logits=float((o0["pred_logits"] - o1["pred_logits"]).abs().max()) if same else None,
              d_boxes=float((o0["pred_boxes"] - o1["pred_boxes"]).abs().max()) if same else None,
              matched_max_l1=float(nn_d.max()), unmatched_1e3=int((nn_d > 1e-3).sum()))

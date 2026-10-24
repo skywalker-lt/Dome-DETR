@@ -1,0 +1,31 @@
+# N1-E + DeFE training fixes, seed 1, at 960 px input (released 800): images upsampled 1.2x, so every feature level has
+# 1.44x the positions (stride-4 P2 at 240x240). Multi-scale stage 1 around 960 (720-1200). MWAS windows stay 10x10 at
+# stride 8 (960 / 8 = 120). Control: Dome-S-n1e-defefix-fp1-AITOD-pod.yml (seed 1, 800 px).
+__include__: [
+  './Dome-S-n1e-defefix-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_960_fp1_s1
+eval_spatial_size: [960, 960]
+
+train_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960], }
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+  collate_fn:
+    base_size: 960
+
+val_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960], }
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}

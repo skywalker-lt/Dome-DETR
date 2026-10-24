@@ -1,0 +1,8 @@
+# N1-E + DeFE training fixes, seed 1, initialised from D-FINE-S Objects365 weights (86% of parameters by name and
+# shape: backbone, AIFI, most of the neck and decoder; tools/pretrain/dfine_to_dome.py). Same recipe otherwise.
+# Control: Dome-S-n1e-defefix-fp1-AITOD-pod.yml (seed 1). 0 GFLOPs at inference.
+__include__: [
+  './Dome-S-n1e-defefix-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_obj365_fp1_s1
+tuning: /root/pretrain/dome_from_dfine_s_obj365.pth

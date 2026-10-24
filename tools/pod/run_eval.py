@@ -36,6 +36,8 @@ state = ck["ema"]["module"] if "ema" in ck else ck["model"]
 missing, unexpected = model.load_state_dict(state, strict=False)
 print("loaded", a.ckpt, "missing", len(missing), "unexpected", len(unexpected), flush=True)
 dev = torch.device(a.device); model.to(dev).eval(); post.eval()
+S = int((cfg.yaml_cfg.get("eval_spatial_size") or [800, 800])[0])  # input size the model was trained/evaluated at
+print("input size", S, flush=True)
 if a.fold:
     from src.zoo.dome.fold import fold_exact  # noqa: E402
     print("folded", fold_exact(model), flush=True)
@@ -73,7 +75,7 @@ with torch.no_grad():
     for k, im in enumerate(images):
         img = Image.open(os.path.join(a.img_dir, im["file_name"])).convert("RGB")
         w, h = img.size
-        x = torch.from_numpy(np.asarray(img.resize((800, 800), Image.BILINEAR), dtype=np.float32) / 255.0).permute(2, 0, 1)[None]
+        x = torch.from_numpy(np.asarray(img.resize((S, S), Image.BILINEAR), dtype=np.float32) / 255.0).permute(2, 0, 1)[None]
         out = model(x.to(dev))
         res = {k: v.cpu() for k, v in post(out, torch.tensor([[w, h]], dtype=torch.float32, device=dev))[0].items()}
         lab, box, sc = res["labels"].numpy(), res["boxes"].numpy(), res["scores"].numpy()
