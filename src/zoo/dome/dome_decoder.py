@@ -338,8 +338,21 @@ class TransformerDecoder(nn.Module):
         up,
         eval_idx=-1,
         layer_scale=2,
+        query_prune_thr=None,
+        query_prune_min=100,
+        query_prune_classes=None,
+        query_prune_frozen=False,
     ):
         super(TransformerDecoder, self).__init__()
+        # inference-only query pruning after the first decoder layer (seminar 11, d2): keep the top-B queries by the
+        # layer-1 pre-head score, B = max(query_prune_min, #queries with score > query_prune_thr); layers 2..L run on
+        # those. None (default) = released behaviour. Batch 1 only (the FP-1 scoring protocol); training unchanged.
+        self.query_prune_thr = query_prune_thr
+        self.query_prune_min = query_prune_min
+        self.query_prune_classes = query_prune_classes
+        # frozen context: the pruned queries stay in the self-attention as keys/values with their layer-1 states and
+        # boxes (exact up to layer 2); only the kept queries are updated. Saves ~85% of what plain pruning saves.
+        self.query_prune_frozen = query_prune_frozen
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.layer_scale = layer_scale
@@ -373,6 +386,46 @@ class TransformerDecoder(nn.Module):
             [nn.Identity()] * (self.eval_idx) + [self.lqe_layers[self.eval_idx]]
         )
 
+    def _forward_frozen_prune(self, target, ref_points_unact, memory, spatial_shapes, bbox_head, score_head,
+                              query_pos_head, pre_bbox_head, integral, up, reg_scale, memory_mask=None):
+        """eval only, batch 1: frozen-context query pruning after layer 1 (see query_prune_frozen)."""
+        value = self.value_op(memory, None, None, memory_mask, spatial_shapes)
+        project = weighting_function(self.reg_max, up, reg_scale) if not hasattr(self, "project") else self.project
+        ref = F.sigmoid(ref_points_unact)
+        output = self.layers[0](target, ref.unsqueeze(2), value, spatial_shapes, None, query_pos_head(ref).clamp(min=-10, max=10))
+        pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref))
+        pre_scores = score_head[0](output)
+        ref_init = pre_bboxes.detach()
+        corners = bbox_head[0](output)
+        inter = distance2bbox(ref_init, integral(corners, project), reg_scale)
+        s1 = F.sigmoid(pre_scores[0, :, : self.query_prune_classes]).max(-1).values
+        n_keep = min(s1.shape[0], max(self.query_prune_min, int((s1 > self.query_prune_thr).sum())))
+        kq = torch.sort(torch.topk(s1, n_keep).indices).values
+        states_all = output.detach().clone()
+        pos_all = query_pos_head(inter.detach()).clamp(min=-10, max=10)   # = the released layer-2 position embedding
+        out_k, out_det_k, corners_k = output[:, kq], output.detach()[:, kq], corners[:, kq]
+        ref_k, ref_init_k = inter.detach()[:, kq], ref_init[:, kq]
+        pos_k = pos_all[:, kq]
+        inter_k, scores = inter[:, kq], None
+        for i in range(1, self.eval_idx + 1):
+            if i > 1:   # (at i = 1 the kept queries' states and boxes are still their layer-1 values)
+                pos_k = query_pos_head(ref_k).clamp(min=-10, max=10)
+                pos_all = pos_all.clone(); pos_all[:, kq] = pos_k
+                states_all = states_all.clone(); states_all[:, kq] = out_k
+            layer = self.layers[i]
+            t2, _ = layer.self_attn(out_k + pos_k, states_all + pos_all, value=states_all)
+            t = layer.norm1(out_k + layer.dropout1(t2))
+            t2 = layer.cross_attn(t + pos_k, ref_k.unsqueeze(2), value, spatial_shapes)
+            t = layer.gateway(t, layer.dropout2(t2))
+            out_k = layer.norm3((t + layer.dropout4(layer.forward_ffn(t))).clamp(min=-65504, max=65504))
+            pc = bbox_head[i](out_k + out_det_k) + corners_k
+            inter_k = distance2bbox(ref_init_k, integral(pc, project), reg_scale)
+            if i == self.eval_idx:
+                scores = self.lqe_layers[i](score_head[i](out_k), pc)
+                break
+            corners_k, ref_k, out_det_k = pc, inter_k.detach(), out_k.detach()
+        return (inter_k[None], scores[None], pc[None], ref_init_k[None], pre_bboxes[:, kq], pre_scores[:, kq])
+
     def forward(
         self,
         target,
@@ -391,6 +444,9 @@ class TransformerDecoder(nn.Module):
         dn_meta=None,
         img_input=None
     ):
+        if self.query_prune_thr is not None and self.query_prune_frozen and not self.training and target.shape[0] == 1:
+            return self._forward_frozen_prune(target, ref_points_unact, memory, spatial_shapes, bbox_head, score_head,
+                                              query_pos_head, pre_bbox_head, integral, up, reg_scale, memory_mask)
         output = target
         output_detach = pred_corners_undetach = 0
         value = self.value_op(memory, None, None, memory_mask, spatial_shapes)
@@ -435,6 +491,14 @@ class TransformerDecoder(nn.Module):
                 pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref_points_detach))
                 pre_scores = score_head[0](output)
                 ref_points_initial = pre_bboxes.detach()
+                if self.query_prune_thr is not None and not self.query_prune_frozen and not self.training and output.shape[0] == 1:
+                    s1 = F.sigmoid(pre_scores[0, :, : self.query_prune_classes]).max(-1).values
+                    n_keep = min(s1.shape[0], max(self.query_prune_min, int((s1 > self.query_prune_thr).sum())))
+                    kq = torch.sort(torch.topk(s1, n_keep).indices).values
+                    output = output[:, kq]
+                    ref_points_detach = ref_points_detach[:, kq]
+                    ref_points_initial = ref_points_initial[:, kq]
+                    pre_bboxes, pre_scores = pre_bboxes[:, kq], pre_scores[:, kq]
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
             pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
@@ -516,6 +580,10 @@ class DomeTransformer(nn.Module):
         max_num_select=1500,
         paqi_density_fix=False,
         paqi_iou_offset=0.0,
+        query_prune_thr=None,
+        query_prune_min=100,
+        query_prune_classes=None,
+        query_prune_frozen=False,
     ):
         super().__init__()
         # paqi_density_fix: read each query's density at (row=cy, col=cx); the released code reads it at (row=cx, col=cy).
@@ -590,6 +658,10 @@ class DomeTransformer(nn.Module):
             self.up,
             eval_idx,
             layer_scale,
+            query_prune_thr=query_prune_thr,
+            query_prune_min=query_prune_min,
+            query_prune_classes=query_prune_classes,
+            query_prune_frozen=query_prune_frozen,
         )
         # denoising
         self.num_denoising = num_denoising
