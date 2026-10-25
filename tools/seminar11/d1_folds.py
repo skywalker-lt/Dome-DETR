@@ -289,7 +289,7 @@ def _cut0g(dec):
     D = proj.out_features
     Ws, bs_ = dec.enc_score_head.weight.double(), dec.enc_score_head.bias.double()
     gam, bet = norm.weight.double(), norm.bias.double()
-    P = torch.eye(D, dtype=torch.float64) - 1.0 / D
+    P = torch.eye(D, dtype=torch.float64, device=Ws.device) - 1.0 / D
     G = Ws * gam[None, :] @ P
     c = (Ws @ bet + bs_)
     gs, used = [], []
