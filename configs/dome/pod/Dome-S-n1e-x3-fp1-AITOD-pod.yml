@@ -1,0 +1,16 @@
+# X3 (seminar 11, d1 package PA_lean): N1-E + DeFE fixes with P4/P5 neck width 128 (was 256) and transformer FFN 512
+# (was 1024; one setting for both the P5 AIFI and the MWAS window attention). P2/P3, DeFE and the decoder unchanged.
+# -19.6% GFLOPs on the 46.8-GF basis (37.6 GF); a cut, so it may lose <= 0.98 AP. Launch with seed 1 (control:
+# Dome-S-n1e-defefix-fp1-AITOD-pod.yml) and seed 0 (control: Dome-S-n1e-defefix-fp1-s0-AITOD-pod.yml).
+__include__: [
+  './Dome-S-n1e-defefix-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_x3_fp1_s1
+
+HybridEncoder:
+  hidden_dim: 128
+  level_dims: [64, 128, 128, 128]
+  dim_feedforward: 512
+
+DomeTransformer:
+  feat_channels: [64, 128, 128, 128]

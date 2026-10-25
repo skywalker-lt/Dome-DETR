@@ -1,0 +1,6 @@
+# N1-E + DeFE fixes, seed 0 (launched with seed 0): second seed of the base (seminar 11, plan item 4). Replicates
+# Dome-S-n1e-defefix-fp1-AITOD-pod.yml (seed 1), tests noise model NM-2, and is the seed-0 control of the width cut.
+__include__: [
+  './Dome-S-n1e-defefix-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_defefix_fp1_s0

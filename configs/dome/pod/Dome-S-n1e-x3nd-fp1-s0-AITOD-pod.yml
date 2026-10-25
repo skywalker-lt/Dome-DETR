@@ -1,0 +1,16 @@
+# Seed 0 of X3' (launched with seed 0); same model as Dome-S-n1e-x3nd-fp1-AITOD-pod.yml. Control: no-density seed 0.
+# X3' (seminar 11, d1 variant V12): the no-density run (Dome-S-n1e-nodens-fp1-AITOD-pod.yml) with X3's width half:
+# P4/P5 neck width 128 and AIFI FFN 512 (no MWAS here). -17.5% GFLOPs against the no-density base (33.4 GF on the
+# 46.8-GF basis); bar 0.88. Used instead of X3 only if the no-density run passes. Seed 1; control: the no-density run.
+__include__: [
+  './Dome-S-n1e-nodens-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_n1e_x3nd_fp1_s0
+
+HybridEncoder:
+  hidden_dim: 128
+  level_dims: [64, 128, 128, 128]
+  dim_feedforward: 512
+
+DomeTransformer:
+  feat_channels: [64, 128, 128, 128]
