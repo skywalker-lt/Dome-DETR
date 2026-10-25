@@ -1021,6 +1021,16 @@ class DomeTransformer(nn.Module):
             )
         else:
             denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
+            # E-pad (seminar 11, d5): at batch > 1 the query sets are padded to the batch maximum with zero-content slots.
+            # Training masks them in self-attention (denoising.py, padding block); eval did not, so real queries attended
+            # to untrained keys and batched eval differed from batch 1 by a model-specific 0.1-1 AP. Apply the same mask.
+            if not self.training and len(batch_queries_num) > 1 and min(batch_queries_num) < num_queries:
+                n_b, n_h = len(batch_queries_num), self.nhead
+                attn_mask = torch.zeros((n_b * n_h, num_queries, num_queries), dtype=torch.bool, device=init_ref_contents.device)
+                for b, q in enumerate(batch_queries_num):
+                    if q < num_queries:
+                        attn_mask[b * n_h:(b + 1) * n_h, :q, q:] = True   # valid queries do not see padding
+                        attn_mask[b * n_h:(b + 1) * n_h, q:, :q] = True   # padding does not see valid queries
 
         if denoising_bbox_unact is not None:
             init_ref_points_unact = torch.concat([denoising_bbox_unact, init_ref_points_unact], dim=1)

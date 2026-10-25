@@ -39,6 +39,13 @@ class DomePostProcessor(nn.Module):
     # def forward(self, outputs, orig_target_sizes):
     def forward(self, outputs, orig_target_sizes: torch.Tensor):
         logits, boxes = outputs["pred_logits"], outputs["pred_boxes"]
+        # E-pad (seminar 11, d5): drop padded query slots and keep each image's own top-q, exactly as at batch 1.
+        bqn = outputs.get("batch_queries_num") if isinstance(outputs, dict) else None
+        if bqn is not None and not self.deploy_mode and len(bqn) == logits.shape[0] > 1 and min(bqn) < logits.shape[1]:
+            results = []
+            for b, q in enumerate(bqn):
+                results += self.forward({"pred_logits": logits[b:b + 1, :q], "pred_boxes": boxes[b:b + 1, :q]}, orig_target_sizes[b:b + 1])
+            return results
 
         # import pdb
         # pdb.set_trace()
