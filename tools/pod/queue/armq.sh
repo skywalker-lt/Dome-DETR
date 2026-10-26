@@ -19,7 +19,7 @@ while sleep 300; do
   [ -s $Q/fired.txt ] || age=999
   if [ $active -lt $MAX ] && [ $free -ge $MIN_FREE_GB ] && [ $age -ge $GAP_MIN ]; then
     echo "$(date -u +%FT%TZ) firing $next (active $active, free ${free} GB)"
-    bash /root/restart_runs.sh "$next"
+    rm -f /root/runs/dome_s_${next%%:*}/PARKED; bash /root/restart_runs.sh "$next"
     echo "$next" >> $Q/fired.txt
     grep -vxF "$next" $Q/queue.txt > $Q/queue.tmp; mv $Q/queue.tmp $Q/queue.txt
   fi
