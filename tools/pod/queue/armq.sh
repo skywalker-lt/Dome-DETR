@@ -11,7 +11,7 @@ while sleep 300; do
   [ -z "$next" ] && continue
   [ "$next" = WAIT ] && continue
   active=0
-  for n in $(cut -d: -f1 $Q/running.txt $Q/fired.txt); do
+  for n in $(cut -d: -f1 $Q/running.txt $Q/fired.txt | sort -u); do
     d=/root/runs/dome_s_$n; { [ -f $d/FINISHED ] || [ -f $d/PARKED ]; } || active=$((active + 1))
   done
   free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1); free=$((free / 1024))

@@ -7,7 +7,7 @@ Q=/root/queue
 cfg_of() { grep -h "^$1:" $Q/running.txt $Q/fired.txt | tail -1; }
 while sleep 60; do
   [ -f $Q/unstick.busy ] && continue
-  for spec in $(cat $Q/running.txt $Q/fired.txt); do
+  for spec in $(cat $Q/running.txt $Q/fired.txt | awk -F: '!seen[$1]++'); do
     n=${spec%%:*}; R=/root/runs/dome_s_$n; f=$R/train.out
     { [ -f $R/FINISHED ] || [ -f $R/PARKED ]; } && continue
     last=$(tail -n 1 $f 2>/dev/null)
