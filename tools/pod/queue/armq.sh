@@ -8,6 +8,15 @@ touch $Q/fired.txt
 while sleep 300; do
   [ -f $Q/STOP ] && { echo "$(date -u +%FT%TZ) STOP file present; idle"; continue; }
   next=$(grep -v '^#' $Q/queue.txt 2>/dev/null | grep -v '^\s*$' | head -1)
+  # LONELY (user 2026-10-28): resume the parked 960-px run IF AND ONLY IF the queue is empty and exactly one run is left
+  if [ -z "$next" ] && [ -n "${LONELY:-}" ] && [ -f /root/runs/dome_s_${LONELY%%:*}/PARKED ]; then
+    nact=0; for n in $(cut -d: -f1 $Q/running.txt $Q/fired.txt | sort -u); do d=/root/runs/dome_s_$n; { [ -f $d/FINISHED ] || [ -f $d/PARKED ]; } || nact=$((nact + 1)); done
+    if [ $nact -eq 1 ]; then
+      echo "$(date -u +%FT%TZ) lonely run: resuming $LONELY"
+      rm -f /root/runs/dome_s_${LONELY%%:*}/PARKED; bash /root/restart_runs.sh "$LONELY"; echo "$LONELY" >> $Q/fired.txt
+    fi
+    continue
+  fi
   [ -z "$next" ] && continue
   [ "$next" = WAIT ] && continue
   active=0
