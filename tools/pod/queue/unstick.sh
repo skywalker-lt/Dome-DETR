@@ -19,7 +19,7 @@ while sleep 60; do
     for p in $(nvidia-smi --query-compute-apps=pid --format=csv,noheader); do
       m=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits | awk -F", " -v p=$p "\$1==p{print \$2}")
       o=$(tr "\0" " " < /proc/$p/cmdline 2>/dev/null | grep -oE "/root/runs/dome_s_[a-z0-9_]+" | head -1)
-      [ -z "$o" ] && o=$(tr "\0" " " < /proc/$p/cmdline 2>/dev/null | grep -oE "Dome-S-[a-z0-9-]+-AITOD-pod.yml" | head -1)
+      [ -z "$o" ] && o=$(tr "\0" " " < /proc/$p/cmdline 2>/dev/null | grep -oE "Dome-[SML]-[a-z0-9-]+-AITOD-pod.yml" | head -1)
       for s2 in $(cat $Q/running.txt $Q/fired.txt); do n2=${s2%%:*}; c2=$(echo $s2 | cut -d: -f2)
         { [ "$o" = "${c2##*/}" ] || [ "$o" = "/root/runs/dome_s_$n2" ]; } || continue
         [ "$n2" = "$n" ] && continue
