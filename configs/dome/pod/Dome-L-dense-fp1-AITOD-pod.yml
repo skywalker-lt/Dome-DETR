@@ -1,0 +1,15 @@
+# Dense Dome-L control for the scaling test (2026-10-31): the released Dome-L AI-TOD recipe under protocol FP-1 (no reloads,
+# fixed epoch-159 EMA scored at batch 1) with the two DeFE training fixes adopted for every run. Launch with seed 1.
+# Run name l_dense_fp1_s1 (the dome_s_ prefix of the output dir is the pod tools' naming convention, not the model size).
+__include__: [
+  '../Dome-L-AITOD.yml',
+  './aitod_pod_data.yml',
+  './fp1_protocol.yml',
+]
+output_dir: /root/runs/dome_s_l_dense_fp1_s1
+
+HybridEncoder:
+  defe_train_per_image_norm: True
+
+DomeCriterion:
+  defe_float_count_target: True

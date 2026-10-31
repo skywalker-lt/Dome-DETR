@@ -1,0 +1,15 @@
+# N1-E on Dome-L for the scaling test (2026-10-31): the dense-L control (Dome-L-dense-fp1-AITOD-pod.yml) with the thin neck
+# (P2 64, P3 128, P4/P5 256) and the narrow DeFE (body 64, head 32). Counted ~144 GF vs ~366 for dense L, i.e. the
+# compute of dense Dome-S (141 GF). Launch with seed 1; control: the dense-L run, same seed.
+__include__: [
+  './Dome-L-dense-fp1-AITOD-pod.yml',
+]
+output_dir: /root/runs/dome_s_l_n1e_fp1_s1
+
+HybridEncoder:
+  level_dims: [64, 128, 256, 256]
+  defe_width: 64
+  defe_head_width: 32
+
+DomeTransformer:
+  feat_channels: [64, 128, 256, 256]
